@@ -1,5 +1,7 @@
+use ingest::chunk;
+
 fn main() {
-    let chunk = core::Chunk {
+    let test_chunk = core::Chunk {
         id: String::from("1"),
         text: String::from("You need to defeat all the diseases"),
         game: String::from("Pandemic"),
@@ -7,5 +9,7 @@ fn main() {
         page: None,
         embedding: None,
     };
-    println!("Hello world! {}", chunk.text);
+    println!("Hello world! {}", test_chunk.text);
+
+    chunk(&"./data/pdfs/pandemic.txt".to_string());
 }
