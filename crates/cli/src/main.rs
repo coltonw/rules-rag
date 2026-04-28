@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use ingest::{Chunker as _, FixedSizeChunker};
 
 fn main() {
@@ -5,6 +7,6 @@ fn main() {
         size: 512,
         overlap: 64,
     };
-    let chunks = chunker.chunk("./data/pdfs/pandemic.txt");
+    let chunks = chunker.chunk(Path::new("./data/pdfs/pandemic.txt"));
     println!("{}", chunks.first().unwrap().text);
 }
