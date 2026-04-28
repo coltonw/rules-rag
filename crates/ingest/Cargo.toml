@@ -4,4 +4,5 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+core = { path = "../core" }
 tiktoken-rs = "0.11.0"

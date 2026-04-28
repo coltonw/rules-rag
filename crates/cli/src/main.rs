@@ -1,15 +1,10 @@
-use ingest::chunk;
+use ingest::{Chunker as _, FixedSizeChunker};
 
 fn main() {
-    let test_chunk = core::Chunk {
-        id: String::from("1"),
-        text: String::from("You need to defeat all the diseases"),
-        game: String::from("Pandemic"),
-        source: String::from("pandemic_rules.pdf"),
-        page: None,
-        embedding: None,
+    let chunker = FixedSizeChunker {
+        size: 512,
+        overlap: 64,
     };
-    println!("Hello world! {}", test_chunk.text);
-
-    chunk(&"./data/pdfs/pandemic.txt".to_string());
+    let chunks = chunker.chunk("./data/pdfs/pandemic.txt");
+    println!("{}", chunks.first().unwrap().text);
 }

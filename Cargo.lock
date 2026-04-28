@@ -76,6 +76,7 @@ dependencies = [
 name = "ingest"
 version = "0.1.0"
 dependencies = [
+ "core",
  "tiktoken-rs",
 ]
 

@@ -11,6 +11,8 @@
 #   1. Normalize via Ghostscript (-dUseCropBox), with mutool as fallback.
 #   2. Per-page extraction with pdftotext -layout.
 #   3. OCR fallback (ocrmypdf) if extraction yielded < 50 words.
+#   4. Unicode NFKC normalization (decomposes ligatures like ﬁ→fi, ﬂ→fl,
+#      and smart quotes / compatibility forms common in PDF text streams).
 
 set -euo pipefail
 
@@ -27,7 +29,7 @@ if [ ! -f "$input" ]; then
   exit 1
 fi
 
-for cmd in gs pdftotext pdfinfo; do
+for cmd in gs pdftotext pdfinfo perl; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "error: required command not found: $cmd" >&2
     exit 1
@@ -56,11 +58,21 @@ extract() {
   local src="$1" dst="$2"
   local n
   n=$(pdfinfo "$src" | awk '/^Pages:/ {print $2}')
-  : > "$dst"
+  local raw="$tmp/raw.txt"
+  : > "$raw"
   for p in $(seq 1 "$n"); do
-    printf '\n===== PAGE %d =====\n' "$p" >> "$dst"
-    pdftotext -layout -f "$p" -l "$p" "$src" - >> "$dst" 2>/dev/null || true
+    printf '\n===== PAGE %d =====\n' "$p" >> "$raw"
+    # Strip leading whitespace and collapse internal whitespace runs. -layout
+    # pads with spaces to preserve visual column alignment; for embedding /
+    # BM25 this is just token-bloat noise. Page markers above are written
+    # before the pipe, so they're never touched by sed.
+    pdftotext -layout -nopgbrk -f "$p" -l "$p" "$src" - 2>/dev/null \
+      | sed -E 's/^[[:space:]]+//; s/[[:space:]]{2,}/ /g' \
+      >> "$raw" || true
   done
+  # Squeeze runs of blank lines into a single blank, so paragraph-aware
+  # chunkers downstream can rely on \n\n as a real paragraph break.
+  cat -s "$raw" > "$dst"
 }
 
 extract "$tmp/norm.pdf" "$out"
@@ -78,3 +90,8 @@ if [ "$(wc -w < "$out")" -lt 50 ]; then
   fi
   extract "$tmp/ocr.pdf" "$out"
 fi
+
+# Stage 4: Unicode NFKC normalization. PDF text streams routinely contain
+# presentation-form ligatures (U+FB01 ﬁ, U+FB02 ﬂ, etc.) and other
+# compatibility characters that hurt both display and lexical search.
+perl -CSDA -MUnicode::Normalize -i -pe '$_ = NFKC($_)' "$out"
