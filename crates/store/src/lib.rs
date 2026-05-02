@@ -6,7 +6,7 @@ use arrow_array::{Array, FixedSizeListArray, Float32Array, RecordBatch, StringAr
 use arrow_schema::{DataType, Field, Schema};
 use futures::TryStreamExt as _;
 use lancedb::query::{ExecutableQuery as _, QueryBase as _};
-use lancedb::{Table, connect};
+use lancedb::{DistanceType, Table, connect};
 use rag_core::{Chunk, EMBED_DIM, RetrievalResult, VectorStore};
 
 pub use arrow_array;
@@ -103,7 +103,7 @@ fn records_to_results(batches: Vec<RecordBatch>) -> Vec<RetrievalResult> {
                     page: (!pages.is_null(i)).then(|| pages.value(i)),
                     embedding: None,
                 },
-                score: distances.value(i),
+                score: 1.0 - distances.value(i),
             })
         }
     }
@@ -168,6 +168,7 @@ impl VectorStore for LanceStore {
             .query()
             .nearest_to(embedding)
             .unwrap()
+            .distance_type(DistanceType::Cosine)
             .limit(k)
             .execute()
             .await
@@ -272,7 +273,7 @@ mod tests {
         assert_eq!(results[0].chunk.text, "first");
         assert_eq!(results[0].score, 0.5);
         assert_eq!(results[1].chunk.id, "y");
-        assert_eq!(results[1].score, 0.8);
+        assert_eq!(results[1].score, 1.0 - 0.8);
         assert!(results[0].chunk.embedding.is_none());
     }
 
@@ -293,7 +294,7 @@ mod tests {
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].chunk.id, "a");
-        assert!(results[0].score < results[1].score);
+        assert!(results[0].score > results[1].score);
     }
 
     #[tokio::test]
