@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use arrow_array::types::Float32Type;
-use arrow_array::{FixedSizeListArray, RecordBatch, StringArray, UInt32Array};
+use arrow_array::{Array, FixedSizeListArray, Float32Array, RecordBatch, StringArray, UInt32Array};
 use arrow_schema::{DataType, Field, Schema};
 use core::{Chunk, EMBED_DIM, RetrievalResult, VectorStore};
 use futures::TryStreamExt as _;
@@ -13,7 +13,6 @@ pub use arrow_array;
 pub use arrow_schema;
 
 pub struct LanceStore {
-    connection: Connection,
     table: Table,
     schema: Arc<Schema>,
 }
@@ -62,7 +61,51 @@ fn records_to_results(batches: Vec<RecordBatch>) -> Vec<RetrievalResult> {
             .column_by_name("id")
             .unwrap()
             .as_any()
-            .downcast_ref::<StringArray>();
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let texts = batch
+            .column_by_name("text")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let games = batch
+            .column_by_name("game")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let sources = batch
+            .column_by_name("source")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let pages = batch
+            .column_by_name("page")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<UInt32Array>()
+            .unwrap();
+        let distances = batch
+            .column_by_name("_distance")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap();
+        for i in 0..batch.num_rows() {
+            results.push(RetrievalResult {
+                chunk: Chunk {
+                    id: ids.value(i).to_string(),
+                    text: texts.value(i).to_string(),
+                    game: games.value(i).to_string(),
+                    source: sources.value(i).to_string(),
+                    page: (!pages.is_null(i)).then(|| pages.value(i)),
+                    embedding: None,
+                },
+                score: distances.value(i),
+            })
+        }
     }
 
     results
@@ -71,11 +114,7 @@ fn records_to_results(batches: Vec<RecordBatch>) -> Vec<RetrievalResult> {
 impl VectorStore for LanceStore {
     async fn connect(path: &Path) -> Self {
         let connection = connect(path.to_str().unwrap()).execute().await.unwrap();
-        let table = connection
-            .open_table("rules_chunks")
-            .execute()
-            .await
-            .unwrap();
+
         let schema = Arc::new(Schema::new(vec![
             Field::new("id", DataType::Utf8, false),
             Field::new("text", DataType::Utf8, false),
@@ -91,11 +130,23 @@ impl VectorStore for LanceStore {
                 false,
             ),
         ]));
-        LanceStore {
-            connection,
-            table,
-            schema,
+
+        let table_name = "rules_chunks";
+        let table = match connection.open_table(table_name).execute().await {
+            Ok(table) => table,
+            Err(lancedb::Error::TableNotFound { .. }) => connection
+                .create_empty_table(table_name, schema.clone())
+                .execute()
+                .await
+                .unwrap(),
+            Err(unknown) => panic!("Unknown error getting table: {:?}", unknown),
+        };
+
+        if table.schema().await.unwrap() != schema {
+            panic!("Schema in DB doesn't match!")
         }
+
+        LanceStore { table, schema }
     }
 
     async fn insert(&self, chunks: &[Chunk]) {
