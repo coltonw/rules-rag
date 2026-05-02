@@ -1,0 +1,12 @@
+[package]
+name = "store"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+arrow-array = "57.3.0"
+arrow-schema = "57.3.0"
+core = { path = "../core" }
+futures = "0.3.32"
+lancedb = "0.27.2"
+serde_arrow = { version = "0.14.0", features = ["arrow-57"] }

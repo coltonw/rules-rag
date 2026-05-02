@@ -1,6 +1,6 @@
+use core::Chunker as _;
+use ingest::FixedSizeChunker;
 use std::path::Path;
-
-use ingest::{Chunker as _, FixedSizeChunker};
 
 fn main() {
     let chunker = FixedSizeChunker {

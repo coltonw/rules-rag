@@ -1,13 +1,9 @@
-use core::Chunk;
+use core::{Chunk, Chunker};
 use regex::Regex;
 use std::collections::HashSet;
 use std::fs::read_to_string;
 use std::path::Path;
 use tiktoken_rs::cl100k_base_singleton;
-
-pub trait Chunker {
-    fn chunk(&self, text_path: &Path) -> Vec<Chunk>;
-}
 
 pub struct FixedSizeChunker {
     pub size: usize,
