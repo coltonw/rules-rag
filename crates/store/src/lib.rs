@@ -4,10 +4,10 @@ use std::sync::Arc;
 use arrow_array::types::Float32Type;
 use arrow_array::{Array, FixedSizeListArray, Float32Array, RecordBatch, StringArray, UInt32Array};
 use arrow_schema::{DataType, Field, Schema};
-use core::{Chunk, EMBED_DIM, RetrievalResult, VectorStore};
 use futures::TryStreamExt as _;
 use lancedb::query::{ExecutableQuery as _, QueryBase as _};
-use lancedb::{Connection, Table, connect};
+use lancedb::{Table, connect};
+use rag_core::{Chunk, EMBED_DIM, RetrievalResult, VectorStore};
 
 pub use arrow_array;
 pub use arrow_schema;
@@ -111,11 +111,9 @@ fn records_to_results(batches: Vec<RecordBatch>) -> Vec<RetrievalResult> {
     results
 }
 
-impl VectorStore for LanceStore {
-    async fn connect(path: &Path) -> Self {
-        let connection = connect(path.to_str().unwrap()).execute().await.unwrap();
-
-        let schema = Arc::new(Schema::new(vec![
+impl LanceStore {
+    fn schema() -> Arc<Schema> {
+        Arc::new(Schema::new(vec![
             Field::new("id", DataType::Utf8, false),
             Field::new("text", DataType::Utf8, false),
             Field::new("game", DataType::Utf8, false),
@@ -129,7 +127,14 @@ impl VectorStore for LanceStore {
                 ),
                 false,
             ),
-        ]));
+        ]))
+    }
+}
+
+impl VectorStore for LanceStore {
+    async fn connect(path: &Path) -> Self {
+        let connection = connect(path.to_str().unwrap()).execute().await.unwrap();
+        let schema = Self::schema();
 
         let table_name = "rules_chunks";
         let table = match connection.open_table(table_name).execute().await {
@@ -171,5 +176,138 @@ impl VectorStore for LanceStore {
         let batches: Vec<RecordBatch> = results.try_collect().await.unwrap();
 
         records_to_results(batches)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn sample_chunk(id: &str, text: &str, embedding: Option<Vec<f32>>) -> Chunk {
+        Chunk {
+            id: id.to_string(),
+            text: text.to_string(),
+            game: "pandemic".to_string(),
+            source: "rules.pdf".to_string(),
+            page: Some(1),
+            embedding,
+        }
+    }
+
+    fn unit_embedding(hot_index: usize) -> Vec<f32> {
+        let mut e = vec![0.0; EMBED_DIM as usize];
+        e[hot_index] = 1.0;
+        e
+    }
+
+    #[test]
+    fn chunks_to_records_filters_chunks_without_embeddings() {
+        let schema = LanceStore::schema();
+        let chunks = vec![
+            sample_chunk("a", "alpha", Some(unit_embedding(0))),
+            sample_chunk("b", "beta", None),
+            sample_chunk("c", "gamma", Some(unit_embedding(1))),
+        ];
+        let batch = chunks_to_records(schema, &chunks);
+
+        assert_eq!(batch.num_rows(), 2);
+        let ids = batch
+            .column_by_name("id")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        assert_eq!(ids.value(0), "a");
+        assert_eq!(ids.value(1), "c");
+    }
+
+    #[test]
+    fn chunks_to_records_preserves_columns() {
+        let schema = LanceStore::schema();
+        let mut chunk = sample_chunk("x", "hello", Some(unit_embedding(3)));
+        chunk.page = Some(42);
+        let batch = chunks_to_records(schema, &[chunk]);
+
+        let texts = batch
+            .column_by_name("text")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let pages = batch
+            .column_by_name("page")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<UInt32Array>()
+            .unwrap();
+        assert_eq!(texts.value(0), "hello");
+        assert_eq!(pages.value(0), 42);
+    }
+
+    #[test]
+    fn records_to_results_extracts_chunks_and_scores() {
+        let chunks = vec![
+            sample_chunk("x", "first", Some(unit_embedding(0))),
+            sample_chunk("y", "second", Some(unit_embedding(1))),
+        ];
+        let base = chunks_to_records(LanceStore::schema(), &chunks);
+
+        let mut fields: Vec<Field> = base
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| f.as_ref().clone())
+            .collect();
+        fields.push(Field::new("_distance", DataType::Float32, false));
+        let schema_with_distance = Arc::new(Schema::new(fields));
+        let mut columns = base.columns().to_vec();
+        columns.push(Arc::new(Float32Array::from(vec![0.5_f32, 0.8])));
+        let batch = RecordBatch::try_new(schema_with_distance, columns).unwrap();
+
+        let results = records_to_results(vec![batch]);
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].chunk.id, "x");
+        assert_eq!(results[0].chunk.text, "first");
+        assert_eq!(results[0].score, 0.5);
+        assert_eq!(results[1].chunk.id, "y");
+        assert_eq!(results[1].score, 0.8);
+        assert!(results[0].chunk.embedding.is_none());
+    }
+
+    #[tokio::test]
+    async fn insert_and_query_roundtrip() {
+        let dir = TempDir::new().unwrap();
+        let store = LanceStore::connect(dir.path()).await;
+
+        let chunks = vec![
+            sample_chunk("a", "text a", Some(unit_embedding(0))),
+            sample_chunk("b", "text b", Some(unit_embedding(1))),
+            sample_chunk("c", "text c", Some(unit_embedding(2))),
+        ];
+        store.insert(&chunks).await;
+
+        let query_vec = unit_embedding(0);
+        let results = store.query(&query_vec, 2).await;
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].chunk.id, "a");
+        assert!(results[0].score < results[1].score);
+    }
+
+    #[tokio::test]
+    async fn connect_is_idempotent_across_calls() {
+        let dir = TempDir::new().unwrap();
+        let store = LanceStore::connect(dir.path()).await;
+        store
+            .insert(&[sample_chunk("a", "text a", Some(unit_embedding(0)))])
+            .await;
+        drop(store);
+
+        let store2 = LanceStore::connect(dir.path()).await;
+        let results = store2.query(&unit_embedding(0), 1).await;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].chunk.id, "a");
     }
 }

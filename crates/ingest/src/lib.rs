@@ -1,4 +1,4 @@
-use core::{Chunk, Chunker};
+use rag_core::{Chunk, Chunker};
 use regex::Regex;
 use std::collections::HashSet;
 use std::fs::read_to_string;

@@ -1,5 +1,5 @@
-use core::Chunker as _;
 use ingest::FixedSizeChunker;
+use rag_core::Chunker as _;
 use std::path::Path;
 
 fn main() {

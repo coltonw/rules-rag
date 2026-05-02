@@ -4,6 +4,6 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-core = { path = "../core" }
+rag-core = { path = "../rag-core" }
 regex = "1.12.3"
 tiktoken-rs = "0.11.0"

@@ -645,8 +645,8 @@ dependencies = [
 name = "cli"
 version = "0.1.0"
 dependencies = [
- "core",
  "ingest",
+ "rag-core",
 ]
 
 [[package]]
@@ -710,13 +710,6 @@ name = "constant_time_eq"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
-
-[[package]]
-name = "core"
-version = "0.1.0"
-dependencies = [
- "serde",
-]
 
 [[package]]
 name = "core-foundation"
@@ -2304,7 +2297,7 @@ dependencies = [
 name = "ingest"
 version = "0.1.0"
 dependencies = [
- "core",
+ "rag-core",
  "regex",
  "tiktoken-rs",
 ]
@@ -3807,6 +3800,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
+name = "rag-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "rand"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4566,10 +4566,12 @@ version = "0.1.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
- "core",
  "futures",
  "lancedb",
+ "rag-core",
  "serde_arrow",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

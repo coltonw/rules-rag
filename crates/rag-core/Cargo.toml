@@ -1,5 +1,5 @@
 [package]
-name = "core"
+name = "rag-core"
 version.workspace = true
 edition.workspace = true
 
