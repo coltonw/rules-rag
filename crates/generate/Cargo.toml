@@ -1,0 +1,13 @@
+[package]
+name = "generate"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+indoc = "2.0.7"
+rag-core = { path = "../rag-core" }
+reqwest = { version = "0.13.3", features = ["json"] }
+serde = { version = "1.0.228", features = ["derive"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -35,6 +35,7 @@ impl Chunker for FixedSizeChunker {
 
         let mut chunks: Vec<Chunk> = Vec::new();
         for (page_num, page) in pages.iter().enumerate() {
+            // TODO: have chunks go through page boundaries
             let mut index = 0;
             while index < page.len() {
                 let Ok(text) = tokenizer.decode(&page[index..(index + self.size).min(page.len())])

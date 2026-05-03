@@ -39,7 +39,7 @@ slickest possible product.
 - **Vector DB:** LanceDB (embedded, no server).
 - **Models:** local via Ollama.
   - Embeddings: smallest viable `qwen3-embedding`.
-  - LLM: `gemma3:4b` (small, fast, good enough for a learning project).
+  - LLM: `gemma4:e2b` (small, fast, good enough for a learning project).
   - Reranker (Phase 3+): `bge-reranker-v2-m3` or LLM-as-reranker fallback.
 - **PDF extraction:** `pdftotext` (poppler) shelled out, or `pdf-extract` crate.
 - **Async:** Tokio.

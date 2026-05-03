@@ -54,14 +54,14 @@ impl Embedder for OllamaEmbedder {
             .unwrap();
 
         println!(
-            "Load duration: {:.3} s",
+            "Embedder load duration: {:.3} s",
             Duration::from_nanos(resp.load_duration).as_secs_f64()
         );
         println!(
-            "Total duration: {:.3} s",
+            "Embedder total duration: {:.3} s",
             Duration::from_nanos(resp.total_duration).as_secs_f64()
         );
-        println!("Prompt eval count: {}", resp.prompt_eval_count);
+        println!("Embedder prompt eval count: {}", resp.prompt_eval_count);
 
         resp.embeddings
     }

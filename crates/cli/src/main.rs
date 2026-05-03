@@ -1,11 +1,14 @@
 use embed::OllamaEmbedder;
+use generate::OllamaGenerator;
 use ingest::FixedSizeChunker;
-use rag_core::{Chunker as _, Embedder as _, VectorStore as _};
+use rag_core::{Chunker as _, Embedder as _, Generator as _, VectorStore as _};
 use std::path::Path;
 use store::LanceStore;
 
 #[tokio::main]
 async fn main() {
+    let query = "In Pandemic, how do you win?";
+
     let chunker = FixedSizeChunker {
         size: 512,
         overlap: 64,
@@ -22,12 +25,8 @@ async fn main() {
     let store = LanceStore::connect(Path::new("./data/lancedb")).await;
     store.insert(&chunks).await;
 
-    let results = store
-        .query(&embedder.generate_one("How do you win?").await, 2)
-        .await;
+    let results = store.query(&embedder.generate_one(query).await, 2).await;
 
-    for result in results {
-        println!("Score: {}", result.score);
-        println!("{}", result.chunk.text);
-    }
+    let generator = OllamaGenerator::new();
+    println!("{}", generator.generate(query, &results).await)
 }

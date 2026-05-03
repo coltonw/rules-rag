@@ -4,8 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-rag-core = { path = "../rag-core" }
-ingest = { path = "../ingest" }
-store = { path = "../store" }
 embed = { path = "../embed" }
+generate = { path = "../generate" }
+ingest = { path = "../ingest" }
+rag-core = { path = "../rag-core" }
+store = { path = "../store" }
 tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread"] }

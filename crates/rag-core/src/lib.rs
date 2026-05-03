@@ -35,3 +35,8 @@ pub trait Embedder {
     async fn generate(&self, inputs: &[impl AsRef<str>]) -> Vec<Vec<f32>>;
     async fn generate_one(&self, input: &str) -> Vec<f32>;
 }
+
+pub trait Generator {
+    fn new() -> Self;
+    async fn generate(&self, query: &str, retrieval: &[RetrievalResult]) -> String;
+}
