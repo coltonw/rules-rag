@@ -142,3 +142,31 @@ Without this, Phase 2+ changes are flying blind.
   code depends on traits, not concrete types.
 - When adding a new technique, add it behind the existing trait — don't
   fork the pipeline.
+
+## PDF extraction pipeline
+
+`scripts/pdf2txt.sh` is the entry point. Internally it chains gs CropBox
+normalization → `scripts/pdf_columns.py` (column-aware extraction via
+`pdftotext -bbox-layout` + a recursive XY-cut pass with wide-block
+lifting) → ocrmypdf fallback for image PDFs → NFKC perl normalization.
+
+Reliability over simplicity here: bad extractions silently poison every
+downstream RAG result, so it's fine to chain multiple tools (each best at
+one job) rather than collapse to a single tool. Iterability matters more
+than line count — when a new PDF reveals a new failure mode, expect to
+add another stage rather than rewrite from scratch.
+
+Gotchas already paid for:
+
+- **gs `-dUseCropBox` is load-bearing.** Some rulebooks (Pandemic) are
+  2-up scans where each PDF page is the same scan with a CropBox selecting
+  only the left or right half. Skipping the CropBox step makes pdftotext
+  read from the MediaBox and emit duplicated content from both halves.
+  Always normalize first.
+- **Don't use `pdftotext -layout` then collapse whitespace.** `-layout`
+  preserves column structure with space padding; collapsing runs of
+  whitespace interleaves N columns of prose into garbage. Use
+  `-bbox-layout` (gives block bounding boxes) and reorder by coordinates.
+- **Tunables for column ordering** live at the top of `pdf_columns.py`:
+  `MIN_GAP_X_FRAC`, `MIN_GAP_Y_FRAC`, `WIDE_FRAC`. These are the first
+  knobs to turn when a new rulebook misorders.
