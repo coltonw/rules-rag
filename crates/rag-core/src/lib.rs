@@ -29,3 +29,9 @@ pub trait VectorStore {
     async fn insert(&self, chunks: &[Chunk]);
     async fn query(&self, embedding: &[f32], k: usize) -> Vec<RetrievalResult>;
 }
+
+pub trait Embedder {
+    fn new() -> Self;
+    async fn generate(&self, inputs: &[impl AsRef<str>]) -> Vec<Vec<f32>>;
+    async fn generate_one(&self, input: &str) -> Vec<f32>;
+}

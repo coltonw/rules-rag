@@ -132,6 +132,7 @@ impl LanceStore {
 }
 
 impl VectorStore for LanceStore {
+    // TODO: actual error handling
     async fn connect(path: &Path) -> Self {
         let connection = connect(path.to_str().unwrap()).execute().await.unwrap();
         let schema = Self::schema();

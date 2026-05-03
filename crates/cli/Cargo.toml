@@ -6,3 +6,6 @@ edition.workspace = true
 [dependencies]
 rag-core = { path = "../rag-core" }
 ingest = { path = "../ingest" }
+store = { path = "../store" }
+embed = { path = "../embed" }
+tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread"] }
