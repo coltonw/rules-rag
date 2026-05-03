@@ -1,5 +1,5 @@
 use indoc::formatdoc;
-use rag_core::{Chunk, Generator, RetrievalResult};
+use rag_core::{Generator, RetrievalResult};
 use reqwest::Client;
 use std::time::Duration;
 
