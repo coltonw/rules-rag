@@ -51,7 +51,13 @@ impl Chunker for FixedSizeChunker {
                     page: Some((page_num + 1) as u32), // page numbers start from 1
                     embedding: None,
                 });
-                index += self.size - self.overlap;
+
+                index += self.size;
+
+                // if this chunk didn't go to the end of the page yet, subtract overlap
+                if index < page.len() {
+                    index -= self.overlap;
+                }
             }
         }
         chunks
