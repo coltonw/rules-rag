@@ -1,9 +1,10 @@
-use anyhow::Context;
+use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
 use embed::OllamaEmbedder;
 use generate::OllamaGenerator;
-use ingest::{Chunker as _, FixedSizeChunker};
-use rag_core::{Embedder as _, Generator as _, VectorStore as _};
+use ingest::manifest::DocMeta;
+use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
+use rag_core::{Chunk, Embedder as _, Generator as _, VectorStore as _};
 use std::path::Path;
 use std::path::PathBuf;
 use store::LanceStore;
@@ -25,11 +26,10 @@ enum Command {
     /// Ingest parsed rulebooks into the RAG.
     Ingest {
         /// The files to ingest.
-        #[arg(required = true)]
         paths: Vec<PathBuf>,
         /// Game name.
         #[arg(short, long)]
-        game: String,
+        game: Option<String>,
     },
     /// Ask the chatbot a rules question.
     Ask { question: String },
@@ -53,29 +53,67 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Command::Ingest { paths, game } => {
+            let manifest = read_manifest(Path::new("./data/pdfs/manifest.toml"))?;
             let chunker = FixedSizeChunker {
                 size: 512,
                 overlap: 64,
             };
-            for path in &paths {
-                let mut chunks = chunker
-                    .chunk(path, &game)
-                    .with_context(|| format!("chunking {}", path.display()))?;
+            let to_ingest: Vec<DocMeta> = if paths.is_empty() {
+                manifest
+            } else {
+                paths
+                    .into_iter()
+                    .map(|path| {
+                        let single_manifest = manifest.iter().find(|meta| meta.file == path);
+                        let game = game
+                            .as_ref()
+                            .or(single_manifest.map(|m| &m.game))
+                            .ok_or_else(|| {
+                                anyhow!(
+                                    "{} not found in the manifest and no --game parameter",
+                                    path.display()
+                                )
+                            })?
+                            .to_string();
+                        let doc_type = single_manifest.map(|m| m.doc_type).ok_or_else(|| {
+                            anyhow!("{} not found in the manifest", path.display())
+                        })?;
+                        Ok(DocMeta {
+                            file: path,
+                            game,
+                            doc_type,
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?
+            };
+            for doc_meta in &to_ingest {
+                let raw_chunks = chunker
+                    .chunk(&doc_meta.file)
+                    .with_context(|| format!("chunking {}", &doc_meta.file.display()))?;
 
-                let to_embed: Vec<&str> = chunks.iter().map(|chunk| chunk.text.as_str()).collect();
+                let to_embed: Vec<&str> =
+                    raw_chunks.iter().map(|chunk| chunk.text.as_str()).collect();
                 let embeddings = embedder
                     .generate(&to_embed)
                     .await
-                    .with_context(|| format!("embedding {}", path.display()))?;
-                for (chunk, embedding) in chunks.iter_mut().zip(embeddings) {
-                    chunk.embedding = Some(embedding);
+                    .with_context(|| format!("embedding {}", &doc_meta.file.display()))?;
+                let mut chunks: Vec<Chunk> = Vec::new();
+                for (raw_chunk, embedding) in raw_chunks.into_iter().zip(embeddings) {
+                    chunks.push(Chunk {
+                        id: "TODO".to_string(),
+                        text: raw_chunk.text,
+                        game: doc_meta.game.to_string(),
+                        doc_type: doc_meta.doc_type,
+                        page: raw_chunk.page,
+                        embedding: Some(embedding),
+                    })
                 }
                 store
                     .insert(&chunks)
                     .await
-                    .with_context(|| format!("inserting {}", path.display()))?;
+                    .with_context(|| format!("inserting {}", &doc_meta.file.display()))?;
             }
-            println!("{} rulebooks ingested", paths.len());
+            println!("{} rulebooks ingested", to_ingest.len());
         }
         Command::Ask { question } => {
             let results = store

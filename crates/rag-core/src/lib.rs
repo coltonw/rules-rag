@@ -10,9 +10,24 @@ pub struct Chunk {
     pub id: String,
     pub text: String,
     pub game: String,
-    pub source: String, // e.g., "pandemic_rules.pdf"
+    pub doc_type: DocType,
     pub page: Option<u32>,
+    #[serde(default)]
     pub embedding: Option<Vec<f32>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RawChunk {
+    pub text: String,
+    pub page: Option<u32>,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DocType {
+    Rules,
+    Reference,
+    Faq,
 }
 
 pub struct RetrievalResult {

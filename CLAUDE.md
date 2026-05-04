@@ -98,7 +98,28 @@ CLI: `bgrag ingest <pdf> --game <name>` and `bgrag ask <question> --game <name>`
 
 Goal: working pipeline. Quality will be mediocre; that's expected.
 
-### Phase 1.5 — Eval harness (do this BEFORE Phase 2)
+### Phase 1.1 — Ingest manifest
+A `data/pdfs/manifest.toml` (array-of-tables) describes every document so
+re-ingestion doesn't require retyping `--game` and friends every time.
+
+```toml
+[[document]]
+file = "pandemic-rules.txt"
+game = "Pandemic"
+doc_type = "rules"
+```
+
+Deserializes to `Vec<DocMeta>` via `serde` + `toml`. CLI changes:
+`bgrag ingest` with no args ingests every entry; `bgrag ingest <path>`
+looks up that file's metadata in the manifest. `--game` becomes an
+optional override. `doc_type` threads through `Chunk` and the LanceDB
+schema so it's filterable later (rules vs FAQ vs transcript).
+
+Pipeline knobs (chunk size, overlap, top-k) stay out of the manifest —
+those belong in the eventual `config.toml`. The manifest is per-document
+facts only.
+
+### Phase 1.2 — Eval harness (do this BEFORE Phase 2)
 Hand-write 20–30 golden questions across 2–3 well-known games. Implement
 Recall@k, MRR, and a "answer contains expected phrases" check. Add
 `bgrag eval`.
@@ -146,27 +167,42 @@ Without this, Phase 2+ changes are flying blind.
 ## PDF extraction pipeline
 
 `scripts/pdf2txt.sh` is the entry point. Internally it chains gs CropBox
-normalization → `scripts/pdf_columns.py` (column-aware extraction via
-`pdftotext -bbox-layout` + a recursive XY-cut pass with wide-block
-lifting) → ocrmypdf fallback for image PDFs → NFKC perl normalization.
+normalization → Marker (ML-based layout analysis + OCR via surya) →
+NFKC perl normalization. Marker outputs paginated Markdown; the script
+rewrites its `{N}===PAGE_BREAK===` tokens to our `===== PAGE M =====`
+format (1-indexed) that the Rust ingest crate parses.
 
-Reliability over simplicity here: bad extractions silently poison every
-downstream RAG result, so it's fine to chain multiple tools (each best at
-one job) rather than collapse to a single tool. Iterability matters more
-than line count — when a new PDF reveals a new failure mode, expect to
-add another stage rather than rewrite from scratch.
+Marker runs from a venv at `scripts/.venv/` (gitignored). Bootstrap once:
+
+```
+python3 -m venv scripts/.venv
+scripts/.venv/bin/pip install marker-pdf
+```
+
+First run downloads ~1 GB of model weights into `~/.cache/datalab/`.
+Subsequent runs reuse them. Marker auto-detects CUDA and uses the GPU
+when available; on a 3080, ~5s/page with `--force_ocr`.
+
+Output quality is dramatically better than the previous hand-rolled
+`pdftotext + XY-cut` pipeline — Marker's layout model handles
+multi-column flow, inline figures splitting wrapped lines, and even
+labels-on-artwork pages (Quacks contents page) reasonably well.
 
 Gotchas already paid for:
 
 - **gs `-dUseCropBox` is load-bearing.** Some rulebooks (Pandemic) are
   2-up scans where each PDF page is the same scan with a CropBox selecting
-  only the left or right half. Skipping the CropBox step makes pdftotext
-  read from the MediaBox and emit duplicated content from both halves.
-  Always normalize first.
-- **Don't use `pdftotext -layout` then collapse whitespace.** `-layout`
-  preserves column structure with space padding; collapsing runs of
-  whitespace interleaves N columns of prose into garbage. Use
-  `-bbox-layout` (gives block bounding boxes) and reorder by coordinates.
-- **Tunables for column ordering** live at the top of `pdf_columns.py`:
-  `MIN_GAP_X_FRAC`, `MIN_GAP_Y_FRAC`, `WIDE_FRAC`. These are the first
-  knobs to turn when a new rulebook misorders.
+  only the left or right half. Skipping the CropBox step makes the
+  extractor read from the MediaBox and emit duplicated content from both
+  halves. Always normalize first.
+- **`--force_ocr` is load-bearing.** Marker's default text-extraction
+  path uses pypdfium, which silently drops glyphs whose ToUnicode CMap is
+  partial — Pandemic's stylized initial-cap "Th" got swallowed, producing
+  "e clock is ticking" instead of "The clock is ticking". Forcing OCR
+  via surya re-reads the rendered glyph and recovers the character.
+  Slower (~5s/page on GPU vs ~1s) but robust against the kinds of font
+  weirdness rulebook designers love.
+- **Inline icons render as emoji approximations** under OCR (e.g. the
+  Challengers fans icon comes through as 👚). Harmless for retrieval —
+  surrounding words still match — and arguably useful as a marker that
+  an icon was there.

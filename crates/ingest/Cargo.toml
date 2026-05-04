@@ -6,5 +6,7 @@ edition.workspace = true
 [dependencies]
 rag-core = { path = "../rag-core" }
 regex = "1.12.3"
+serde = { version = "1.0.228", features = ["derive"] }
 thiserror = "2.0.18"
 tiktoken-rs = "0.11.0"
+toml = "1.1.2"

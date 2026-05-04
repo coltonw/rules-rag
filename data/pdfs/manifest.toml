@@ -1,0 +1,14 @@
+[[document]]
+file = "./data/pdfs/pandemic.txt"
+game = "Pandemic"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/challengers-rulebook.txt"
+game = "Challengers"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-quacks-of-quedlinburg-rulebook.txt"
+game = "The Quacks of Quedlinberg"
+doc_type = "rules"

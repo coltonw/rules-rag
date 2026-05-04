@@ -1,4 +1,6 @@
 /target
-/data/pdfs/
+/data/pdfs/*
+!/data/pdfs/manifest.toml
 /data/lancedb/
 __pycache__
+/scripts/.venv/
