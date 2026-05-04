@@ -12,6 +12,10 @@ async fn main() {
         .pop()
         .unwrap_or("In Pandemic, how do you win?".to_string());
 
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
+
     let chunker = FixedSizeChunker {
         size: 512,
         overlap: 64,
@@ -22,7 +26,7 @@ async fn main() {
 
     let to_embed: Vec<&str> = chunks.iter().map(|chunk| chunk.text.as_str()).collect();
     let embedder = OllamaEmbedder::new();
-    let embeddings = embedder.generate(&to_embed).await;
+    let embeddings = embedder.generate(&to_embed).await.unwrap();
     for (i, embedding) in embeddings.into_iter().enumerate() {
         chunks[i].embedding = Some(embedding);
     }
@@ -33,10 +37,10 @@ async fn main() {
     store.insert(&chunks).await.unwrap();
 
     let results = store
-        .query(&embedder.generate_one(&query).await, 2)
+        .query(&embedder.generate_one(&query).await.unwrap(), 2)
         .await
         .unwrap();
 
     let generator = OllamaGenerator::new();
-    println!("{}", generator.generate(&query, &results).await)
+    println!("{}", generator.generate(&query, &results).await.unwrap())
 }

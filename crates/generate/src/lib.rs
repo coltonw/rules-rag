@@ -2,6 +2,17 @@ use indoc::formatdoc;
 use rag_core::{Generator, RetrievalResult};
 use reqwest::Client;
 use std::time::Duration;
+use tracing::debug;
+
+#[derive(Debug, thiserror::Error)]
+pub enum GenerateError {
+    #[error("generate request failed at {op}")]
+    Reqwest {
+        op: &'static str,
+        #[source]
+        source: reqwest::Error,
+    },
+}
 
 pub struct OllamaGenerator {
     client: Client,
@@ -38,12 +49,15 @@ fn prompt(query: &str, retrieval: &[RetrievalResult]) -> String {
         .iter()
         .map(|r| {
             let chunk = &r.chunk;
+            let page_line = chunk
+                .page
+                .map(|p| format!("\n- Page number: {p}"))
+                .unwrap_or_default();
             formatdoc! {"
             ### Chunk {id}
 
             - Game: {game}
-            - Source: {source}
-            - Page number: {page}
+            - Source: {source}{page_line}
             - Chunk search score: {score}
             - Text:
             ```
@@ -53,7 +67,7 @@ fn prompt(query: &str, retrieval: &[RetrievalResult]) -> String {
                 id = chunk.id,
                 game = chunk.game,
                 source = chunk.source,
-                page = chunk.page.unwrap_or_default(),
+                page_line = page_line,
                 text = chunk.text,
                 score = r.score
             }
@@ -87,6 +101,7 @@ fn prompt(query: &str, retrieval: &[RetrievalResult]) -> String {
 }
 
 impl Generator for OllamaGenerator {
+    type Error = GenerateError;
     fn new() -> Self {
         let client = Client::new();
         OllamaGenerator {
@@ -97,8 +112,11 @@ impl Generator for OllamaGenerator {
         }
     }
 
-    // TODO: actual error handling
-    async fn generate(&self, query: &str, retrieval: &[RetrievalResult]) -> String {
+    async fn generate(
+        &self,
+        query: &str,
+        retrieval: &[RetrievalResult],
+    ) -> Result<String, GenerateError> {
         let resp: GenerateResponse = self
             .client
             .post(format!("{}/api/generate", self.base_url))
@@ -109,26 +127,41 @@ impl Generator for OllamaGenerator {
             })
             .send()
             .await
-            .unwrap()
+            .map_err(|e| GenerateError::Reqwest {
+                op: "send request",
+                source: e,
+            })?
             .error_for_status()
-            .unwrap()
+            .map_err(|e| GenerateError::Reqwest {
+                op: "check response status",
+                source: e,
+            })?
             .json()
             .await
-            .unwrap();
+            .map_err(|e| GenerateError::Reqwest {
+                op: "parse response",
+                source: e,
+            })?;
 
-        if let Some(load_duration) = resp.load_duration {
-            println!(
-                "Generator load duration: {:.3} s",
-                Duration::from_nanos(load_duration).as_secs_f64()
-            );
-        }
-        if let Some(total_duration) = resp.total_duration {
-            println!(
-                "Generator total duration: {:.3} s",
-                Duration::from_nanos(total_duration).as_secs_f64()
-            );
-        }
+        debug!(
+            total_duration =
+                Duration::from_nanos(resp.total_duration.unwrap_or_default()).as_secs_f64(),
+            load_duration =
+                Duration::from_nanos(resp.load_duration.unwrap_or_default()).as_secs_f64(),
+            prompt_eval_count = resp.prompt_eval_count.unwrap_or_default(),
+            prompt_eval_duration =
+                Duration::from_nanos(resp.prompt_eval_duration.unwrap_or_default()).as_secs_f64(),
+            eval_count = resp.eval_count.unwrap_or_default(),
+            eval_duration =
+                Duration::from_nanos(resp.eval_duration.unwrap_or_default()).as_secs_f64(),
+            "generate call complete"
+        );
 
-        resp.response
+        assert!(
+            resp.done,
+            "Generate response should be done before we return it"
+        );
+
+        Ok(resp.response)
     }
 }

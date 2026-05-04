@@ -28,13 +28,19 @@ pub trait VectorStore: Sized {
     -> Result<Vec<RetrievalResult>, Self::Error>;
 }
 
-pub trait Embedder: Sized {
+pub trait Embedder {
+    type Error: std::error::Error + Send + Sync + 'static;
     fn new() -> Self;
-    async fn generate(&self, inputs: &[impl AsRef<str>]) -> Vec<Vec<f32>>;
-    async fn generate_one(&self, input: &str) -> Vec<f32>;
+    async fn generate(&self, inputs: &[impl AsRef<str>]) -> Result<Vec<Vec<f32>>, Self::Error>;
+    async fn generate_one(&self, input: &str) -> Result<Vec<f32>, Self::Error>;
 }
 
 pub trait Generator: Sized {
+    type Error: std::error::Error + Send + Sync + 'static;
     fn new() -> Self;
-    async fn generate(&self, query: &str, retrieval: &[RetrievalResult]) -> String;
+    async fn generate(
+        &self,
+        query: &str,
+        retrieval: &[RetrievalResult],
+    ) -> Result<String, Self::Error>;
 }

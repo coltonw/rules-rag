@@ -1,7 +1,17 @@
-use std::time::Duration;
-
 use rag_core::Embedder;
 use reqwest::Client;
+use std::time::Duration;
+use tracing::debug;
+
+#[derive(Debug, thiserror::Error)]
+pub enum EmbedError {
+    #[error("embed request failed at {op}")]
+    Reqwest {
+        op: &'static str,
+        #[source]
+        source: reqwest::Error,
+    },
+}
 
 pub struct OllamaEmbedder {
     client: Client,
@@ -24,6 +34,7 @@ struct EmbedResponse {
 }
 
 impl Embedder for OllamaEmbedder {
+    type Error = EmbedError;
     fn new() -> Self {
         let client = Client::new();
         OllamaEmbedder {
@@ -34,8 +45,7 @@ impl Embedder for OllamaEmbedder {
         }
     }
 
-    // TODO: actual error handling
-    async fn generate(&self, inputs: &[impl AsRef<str>]) -> Vec<Vec<f32>> {
+    async fn generate(&self, inputs: &[impl AsRef<str>]) -> Result<Vec<Vec<f32>>, EmbedError> {
         let inputs: Vec<&str> = inputs.iter().map(AsRef::as_ref).collect();
         let resp: EmbedResponse = self
             .client
@@ -46,28 +56,43 @@ impl Embedder for OllamaEmbedder {
             })
             .send()
             .await
-            .unwrap()
+            .map_err(|e| EmbedError::Reqwest {
+                op: "send request",
+                source: e,
+            })?
             .error_for_status()
-            .unwrap()
+            .map_err(|e| EmbedError::Reqwest {
+                op: "check response status",
+                source: e,
+            })?
             .json()
             .await
-            .unwrap();
+            .map_err(|e| EmbedError::Reqwest {
+                op: "parse response",
+                source: e,
+            })?;
 
-        println!(
-            "Embedder load duration: {:.3} s",
-            Duration::from_nanos(resp.load_duration).as_secs_f64()
+        debug!(
+            load_duration = Duration::from_nanos(resp.load_duration).as_secs_f64(),
+            total_duration = Duration::from_nanos(resp.total_duration).as_secs_f64(),
+            prompt_eval_count = resp.prompt_eval_count,
+            "embed call complete"
         );
-        println!(
-            "Embedder total duration: {:.3} s",
-            Duration::from_nanos(resp.total_duration).as_secs_f64()
-        );
-        println!("Embedder prompt eval count: {}", resp.prompt_eval_count);
 
-        resp.embeddings
+        assert_eq!(
+            inputs.len(),
+            resp.embeddings.len(),
+            "There should be an embedding for each input"
+        );
+        Ok(resp.embeddings)
     }
 
-    async fn generate_one(&self, input: &str) -> Vec<f32> {
-        self.generate(&[input.to_string()]).await.pop().unwrap()
+    async fn generate_one(&self, input: &str) -> Result<Vec<f32>, EmbedError> {
+        Ok(self
+            .generate(&[input.to_string()])
+            .await?
+            .pop()
+            .expect("There should always be an embed result"))
     }
 }
 
@@ -79,7 +104,7 @@ mod tests {
     #[tokio::test]
     async fn generate_one_embed() {
         let embedder = OllamaEmbedder::new();
-        let embed = embedder.generate_one("Hello").await;
+        let embed = embedder.generate_one("Hello").await.unwrap();
         assert_eq!(embed.len(), 1024);
     }
 }
