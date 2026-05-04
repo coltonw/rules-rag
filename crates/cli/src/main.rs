@@ -1,3 +1,4 @@
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 use embed::OllamaEmbedder;
 use generate::OllamaGenerator;
@@ -35,7 +36,7 @@ enum Command {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let default_level = match cli.verbose {
         0 => "warn",
@@ -48,9 +49,7 @@ async fn main() {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
     let embedder = OllamaEmbedder::new();
-    let store = LanceStore::connect(Path::new("./data/lancedb"))
-        .await
-        .unwrap();
+    let store = LanceStore::connect(Path::new("./data/lancedb")).await?;
 
     match cli.command {
         Command::Ingest { paths, game } => {
@@ -59,26 +58,36 @@ async fn main() {
                 overlap: 64,
             };
             for path in &paths {
-                let mut chunks = chunker.chunk(path, &game).unwrap();
+                let mut chunks = chunker
+                    .chunk(path, &game)
+                    .with_context(|| format!("chunking {}", path.display()))?;
 
                 let to_embed: Vec<&str> = chunks.iter().map(|chunk| chunk.text.as_str()).collect();
-                let embeddings = embedder.generate(&to_embed).await.unwrap();
+                let embeddings = embedder
+                    .generate(&to_embed)
+                    .await
+                    .with_context(|| format!("embedding {}", path.display()))?;
                 for (chunk, embedding) in chunks.iter_mut().zip(embeddings) {
                     chunk.embedding = Some(embedding);
                 }
-                store.insert(&chunks).await.unwrap();
+                store
+                    .insert(&chunks)
+                    .await
+                    .with_context(|| format!("inserting {}", path.display()))?;
             }
             println!("{} rulebooks ingested", paths.len());
         }
         Command::Ask { question } => {
             let results = store
-                .query(&embedder.generate_one(&question).await.unwrap(), 2)
-                .await
-                .unwrap();
+                .query(&embedder.generate_one(&question).await?, 2)
+                .await?;
 
             let generator = OllamaGenerator::new();
+            let answer = generator.generate(&question, &results).await?;
 
-            println!("{}", generator.generate(&question, &results).await.unwrap())
+            println!("{}", answer);
         }
     }
+
+    Ok(())
 }
