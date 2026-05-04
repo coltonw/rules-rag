@@ -13,14 +13,16 @@
 #      are 2-up scans where each PDF page is the same scan with a CropBox
 #      selecting only the left or right half. Skipping this duplicates
 #      every page in the output.
-#   2. Column-aware text extraction via scripts/pdf_columns.py, which
-#      runs `pdftotext -bbox-layout` and reorders blocks into proper
-#      reading order using a recursive XY-cut pass with wide-block
-#      lifting (handles multi-column regions interleaved with full-width
-#      headings/paragraphs).
-#   3. OCR fallback (ocrmypdf) if extraction yielded < 50 words.
-#   4. Unicode NFKC normalization to fold ligatures (ﬁ→fi, ﬂ→fl) and
-#      compatibility forms common in PDF text streams.
+#   2. Layout-aware extraction via Marker (marker-pdf), running on GPU
+#      when CUDA is available. Marker uses ML-based layout detection,
+#      reading-order analysis, and OCR for image PDFs, producing
+#      Markdown with structure preserved (headings, paragraphs, tables).
+#      Page boundaries are emitted as "{N}===PAGE_BREAK===" tokens which
+#      we rewrite to our "===== PAGE M =====" format (Marker is 0-indexed,
+#      our format is 1-indexed).
+#   3. Unicode NFKC normalization to fold ligatures (ﬁ→fi, ﬂ→fl) and
+#      compatibility forms common in PDF text streams. Marker does most
+#      of this internally; this is a belt-and-suspenders pass.
 
 set -euo pipefail
 
@@ -38,13 +40,16 @@ if [ ! -f "$input" ]; then
 fi
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-pdf_columns="$script_dir/pdf_columns.py"
-if [ ! -f "$pdf_columns" ]; then
-  echo "error: helper not found: $pdf_columns" >&2
+venv_python="$script_dir/.venv/bin/python"
+marker_cli="$script_dir/.venv/bin/marker_single"
+
+if [ ! -x "$marker_cli" ]; then
+  echo "error: marker not installed at $marker_cli" >&2
+  echo "       create the venv and install: python3 -m venv $script_dir/.venv && $script_dir/.venv/bin/pip install marker-pdf" >&2
   exit 1
 fi
 
-for cmd in gs pdftotext pdfinfo perl python3; do
+for cmd in gs perl; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "error: required command not found: $cmd" >&2
     exit 1
@@ -54,7 +59,7 @@ done
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-# ---------- Stage 1: normalize via gs (CropBox) -------------------------------
+# ---------- Stage 1: normalize via gs (CropBox) ------------------------------
 # -dUseCropBox forces gs to crop each page to its CropBox, producing a PDF
 # whose page boundary is the visible content. This collapses 2-up "scan +
 # half-page CropBox" PDFs into single pages.
@@ -68,42 +73,55 @@ if ! gs -sDEVICE=pdfwrite -dUseCropBox -dQUIET -dBATCH -dNOPAUSE \
   fi
 fi
 
-# ---------- Stage 2: column-aware extraction ---------------------------------
-# pdf_columns.py invokes `pdftotext -bbox-layout` and runs a layout-analysis
-# pass to emit blocks in human reading order. Output already contains the
-# "===== PAGE N =====" markers.
-extract() {
-  local src="$1" dst="$2"
-  python3 "$pdf_columns" "$src" "$dst"
-  # Squeeze runs of blank lines so paragraph-aware chunkers downstream can
-  # rely on \n\n as a real paragraph break.
-  cat -s "$dst" > "$dst.tmp" && mv "$dst.tmp" "$dst"
-}
+# ---------- Stage 2: Marker extraction ---------------------------------------
+# Marker writes <basename>/<basename>.md into the output dir. We feed it the
+# CropBox-normalized PDF (named norm.pdf) so the output basename is stable.
+#
+# --force_ocr is LOAD-BEARING. Marker's default text-extraction path uses
+# pypdfium, which silently drops glyphs whose ToUnicode CMap is partial —
+# e.g. Pandemic's stylized initial-cap "Th" → "e clock is ticking". OCR via
+# surya re-reads the rendered glyph and recovers the character. Slower but
+# robust across the kinds of font weirdness rulebook designers love.
+"$marker_cli" \
+  --output_format markdown \
+  --paginate_output \
+  --page_separator "===PAGE_BREAK===" \
+  --output_dir "$tmp/marker" \
+  --disable_image_extraction \
+  --force_ocr \
+  "$tmp/norm.pdf"
 
-extract "$tmp/norm.pdf" "$out"
-
-# ---------- Stage 3: OCR fallback --------------------------------------------
-# If the file is a scanned image PDF, stage 2 produces almost nothing.
-# ocrmypdf adds a text layer; --skip-text is fast and only touches pages
-# with no text, --force-ocr is the heavier fallback.
-if [ "$(wc -w < "$out")" -lt 50 ]; then
-  if ! command -v ocrmypdf >/dev/null 2>&1; then
-    echo "warning: extraction was nearly empty and ocrmypdf is not installed" >&2
-    exit 0
-  fi
-  if ! ocrmypdf --skip-text --quiet "$input" "$tmp/ocr.pdf" 2>/dev/null; then
-    ocrmypdf --force-ocr --quiet "$input" "$tmp/ocr.pdf"
-  fi
-  # Re-normalize the OCR output too (CropBox may differ).
-  if ! gs -sDEVICE=pdfwrite -dUseCropBox -dQUIET -dBATCH -dNOPAUSE \
-          -sOutputFile="$tmp/ocr_norm.pdf" "$tmp/ocr.pdf" 2>/dev/null; then
-    cp "$tmp/ocr.pdf" "$tmp/ocr_norm.pdf"
-  fi
-  extract "$tmp/ocr_norm.pdf" "$out"
+md="$tmp/marker/norm/norm.md"
+if [ ! -f "$md" ]; then
+  echo "error: marker produced no markdown at $md" >&2
+  exit 1
 fi
 
-# ---------- Stage 4: Unicode NFKC normalization ------------------------------
-# PDF text streams routinely contain presentation-form ligatures (U+FB01 ﬁ,
-# U+FB02 ﬂ, etc.) and compatibility characters that hurt both display and
-# lexical search.
+# Rewrite Marker's pagination tokens to our format. Marker emits one token
+# per page (0-indexed) at the START of each page, so the first page gets
+# "{0}===PAGE_BREAK===" → "===== PAGE 1 =====".
+"$venv_python" - "$md" "$out" <<'PY'
+import re, sys
+
+md_path, out_path = sys.argv[1:3]
+with open(md_path, encoding="utf-8") as f:
+    text = f.read()
+
+def repl(m):
+    return f"===== PAGE {int(m.group(1)) + 1} ====="
+
+text = re.sub(r"\{(\d+)\}===PAGE_BREAK===", repl, text)
+
+# Trim leading whitespace so the file starts with "===== PAGE 1 =====".
+text = text.lstrip()
+
+# Squeeze runs of >2 blank lines so paragraph-aware chunkers can rely on
+# \n\n as a paragraph break.
+text = re.sub(r"\n{3,}", "\n\n", text)
+
+with open(out_path, "w", encoding="utf-8") as f:
+    f.write(text)
+PY
+
+# ---------- Stage 3: Unicode NFKC normalization ------------------------------
 perl -CSDA -MUnicode::Normalize -i -pe '$_ = NFKC($_)' "$out"

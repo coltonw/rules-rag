@@ -7,26 +7,39 @@ covers how to run the scripts and how to call them from Rust.
 ## `pdf2txt.sh` — PDF → page-marked text
 
 Extracts text from a rulebook PDF with reliable page numbers. Runs three
-stages (normalize → per-page extract → OCR fallback) and writes a single text
-file where each page is preceded by `===== PAGE N =====`.
+stages (gs CropBox normalize → Marker layout-aware extraction with forced
+OCR → NFKC normalize) and writes a single text file where each page is
+preceded by `===== PAGE N =====`.
 
 ### Dependencies
 
-Required:
+System:
 
 - `ghostscript` (`gs`)
-- `poppler-utils` (`pdftotext`, `pdfinfo`)
+- `perl` with `Unicode::Normalize` (ships with most distros)
+- `python3` ≥ 3.10
+- `python3-venv`, `python3-pip`
 
-Optional but recommended:
+Optional:
 
 - `mupdf-tools` (`mutool`) — fallback if Ghostscript fails on a file
-- `ocrmypdf` — OCR fallback for scanned PDFs (pulls in `tesseract`)
 
 On Debian/Ubuntu:
 
 ```bash
-sudo apt install ghostscript poppler-utils mupdf-tools ocrmypdf
+sudo apt install ghostscript mupdf-tools python3-venv python3-pip
 ```
+
+Python (Marker, in a local venv):
+
+```bash
+python3 -m venv scripts/.venv
+scripts/.venv/bin/pip install marker-pdf
+```
+
+Marker pulls PyTorch + CUDA libs (~3 GB) and downloads ~1 GB of model
+weights to `~/.cache/datalab/` on first run. With CUDA available, Marker
+auto-uses the GPU.
 
 ### Usage
 
@@ -87,9 +100,10 @@ Notes:
 
 - The script uses `set -euo pipefail`, so a non-zero exit means a real
   failure — propagate it.
-- It writes nothing to stdout on success; warnings/errors go to stderr.
-  Inherit stderr (the default) so they reach the user's terminal, or pipe it
-  into `tracing` if you want structured logs.
-- A nearly-empty extraction with no `ocrmypdf` installed exits 0 with a
-  warning — the caller should sanity-check the output file is non-trivial
-  before ingesting.
+- It writes nothing to stdout on success; Marker's progress bars and any
+  warnings/errors go to stderr. Inherit stderr (the default) so they
+  reach the user's terminal, or pipe it into `tracing` if you want
+  structured logs.
+- Marker is slow compared to the old `pdftotext` pipeline (~5s/page on a
+  3080 with `--force_ocr`, much slower on CPU). Treat ingest as a
+  one-time-per-rulebook batch job, not interactive.
