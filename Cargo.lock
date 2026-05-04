@@ -1655,6 +1655,7 @@ dependencies = [
  "rag-core",
  "reqwest 0.13.3",
  "serde",
+ "thiserror",
  "tokio",
 ]
 
@@ -1935,6 +1936,7 @@ dependencies = [
  "rag-core",
  "reqwest 0.13.3",
  "serde",
+ "thiserror",
  "tokio",
 ]
 
@@ -2398,6 +2400,7 @@ version = "0.1.0"
 dependencies = [
  "rag-core",
  "regex",
+ "thiserror",
  "tiktoken-rs",
 ]
 
@@ -4799,6 +4802,7 @@ dependencies = [
  "rag-core",
  "serde_arrow",
  "tempfile",
+ "thiserror",
  "tokio",
 ]
 

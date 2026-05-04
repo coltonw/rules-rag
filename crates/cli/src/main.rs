@@ -1,7 +1,7 @@
 use embed::OllamaEmbedder;
 use generate::OllamaGenerator;
-use ingest::FixedSizeChunker;
-use rag_core::{Chunker as _, Embedder as _, Generator as _, VectorStore as _};
+use ingest::{Chunker as _, FixedSizeChunker};
+use rag_core::{Embedder as _, Generator as _, VectorStore as _};
 use std::{env, path::Path};
 use store::LanceStore;
 
@@ -16,7 +16,9 @@ async fn main() {
         size: 512,
         overlap: 64,
     };
-    let mut chunks = chunker.chunk(Path::new("./data/pdfs/pandemic.txt"));
+    let mut chunks = chunker
+        .chunk(Path::new("./data/pdfs/pandemic.txt"))
+        .unwrap();
 
     let to_embed: Vec<&str> = chunks.iter().map(|chunk| chunk.text.as_str()).collect();
     let embedder = OllamaEmbedder::new();
@@ -25,10 +27,15 @@ async fn main() {
         chunks[i].embedding = Some(embedding);
     }
 
-    let store = LanceStore::connect(Path::new("./data/lancedb")).await;
-    store.insert(&chunks).await;
+    let store = LanceStore::connect(Path::new("./data/lancedb"))
+        .await
+        .unwrap();
+    store.insert(&chunks).await.unwrap();
 
-    let results = store.query(&embedder.generate_one(&query).await, 2).await;
+    let results = store
+        .query(&embedder.generate_one(&query).await, 2)
+        .await
+        .unwrap();
 
     let generator = OllamaGenerator::new();
     println!("{}", generator.generate(&query, &results).await)

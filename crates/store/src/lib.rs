@@ -12,6 +12,21 @@ use rag_core::{Chunk, EMBED_DIM, RetrievalResult, VectorStore};
 pub use arrow_array;
 pub use arrow_schema;
 
+#[derive(Debug, thiserror::Error)]
+pub enum StoreError {
+    #[error("LanceDB failure at {op}")]
+    Lance {
+        op: &'static str,
+        #[source]
+        source: lancedb::Error,
+    },
+    #[error("schema in DB does not match expected schema")]
+    SchemaMismatch {
+        expected: Arc<Schema>,
+        actual: Arc<Schema>,
+    },
+}
+
 pub struct LanceStore {
     table: Table,
     schema: Arc<Schema>,
@@ -50,49 +65,28 @@ fn chunks_to_records(schema: Arc<Schema>, rows: &[Chunk]) -> RecordBatch {
             Arc::new(vectors),
         ],
     )
-    .unwrap()
+    .expect("Unexpected error converting chunks to an Arrow RecordBatch")
+}
+
+fn col_as<'a, T: 'static>(batch: &'a RecordBatch, name: &str) -> &'a T {
+    batch
+        .column_by_name(name)
+        .unwrap_or_else(|| panic!("query result missing column '{name}'"))
+        .as_any()
+        .downcast_ref::<T>()
+        .unwrap_or_else(|| panic!("query result column '{name}' has wrong Arrow type"))
 }
 
 fn records_to_results(batches: Vec<RecordBatch>) -> Vec<RetrievalResult> {
     let mut results: Vec<RetrievalResult> = Vec::new();
 
     for batch in batches {
-        let ids = batch
-            .column_by_name("id")
-            .unwrap()
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .unwrap();
-        let texts = batch
-            .column_by_name("text")
-            .unwrap()
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .unwrap();
-        let games = batch
-            .column_by_name("game")
-            .unwrap()
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .unwrap();
-        let sources = batch
-            .column_by_name("source")
-            .unwrap()
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .unwrap();
-        let pages = batch
-            .column_by_name("page")
-            .unwrap()
-            .as_any()
-            .downcast_ref::<UInt32Array>()
-            .unwrap();
-        let distances = batch
-            .column_by_name("_distance")
-            .unwrap()
-            .as_any()
-            .downcast_ref::<Float32Array>()
-            .unwrap();
+        let ids: &StringArray = col_as(&batch, "id");
+        let texts: &StringArray = col_as(&batch, "text");
+        let games: &StringArray = col_as(&batch, "game");
+        let sources: &StringArray = col_as(&batch, "source");
+        let pages: &UInt32Array = col_as(&batch, "page");
+        let distances: &Float32Array = col_as(&batch, "_distance");
         for i in 0..batch.num_rows() {
             results.push(RetrievalResult {
                 chunk: Chunk {
@@ -132,9 +126,16 @@ impl LanceStore {
 }
 
 impl VectorStore for LanceStore {
-    // TODO: actual error handling
-    async fn connect(path: &Path) -> Self {
-        let connection = connect(path.to_str().unwrap()).execute().await.unwrap();
+    type Error = StoreError;
+
+    async fn connect(path: &Path) -> Result<Self, StoreError> {
+        let connection = connect(path.to_str().expect("DB path must be UTF-8"))
+            .execute()
+            .await
+            .map_err(|e| StoreError::Lance {
+                op: "connect",
+                source: e,
+            })?;
         let schema = Self::schema();
 
         let table_name = "rules_chunks";
@@ -144,40 +145,70 @@ impl VectorStore for LanceStore {
                 .create_empty_table(table_name, schema.clone())
                 .execute()
                 .await
-                .unwrap(),
-            Err(unknown) => panic!("Unknown error getting table: {:?}", unknown),
+                .map_err(|e| StoreError::Lance {
+                    op: "create table",
+                    source: e,
+                })?,
+            Err(unknown) => {
+                return Err(StoreError::Lance {
+                    op: "open table",
+                    source: unknown,
+                });
+            }
         };
 
-        if table.schema().await.unwrap() != schema {
-            panic!("Schema in DB doesn't match!")
+        let table_schema = table.schema().await.map_err(|e| StoreError::Lance {
+            op: "read table schema",
+            source: e,
+        })?;
+
+        if table_schema != schema {
+            return Err(StoreError::SchemaMismatch {
+                expected: schema,
+                actual: table_schema,
+            });
         }
 
-        LanceStore { table, schema }
+        Ok(LanceStore { table, schema })
     }
 
-    async fn insert(&self, chunks: &[Chunk]) {
+    async fn insert(&self, chunks: &[Chunk]) -> Result<(), StoreError> {
         self.table
             .add(chunks_to_records(self.schema.clone(), chunks))
             .execute()
             .await
-            .unwrap();
+            .map_err(|e| StoreError::Lance {
+                op: "insert",
+                source: e,
+            })?;
+        Ok(())
     }
 
-    async fn query(&self, embedding: &[f32], k: usize) -> Vec<RetrievalResult> {
+    async fn query(&self, embedding: &[f32], k: usize) -> Result<Vec<RetrievalResult>, StoreError> {
         let results = self
             .table
             .query()
             .nearest_to(embedding)
-            .unwrap()
+            .map_err(|e| StoreError::Lance {
+                op: "build vector query",
+                source: e,
+            })?
             .distance_type(DistanceType::Cosine)
             .limit(k)
             .execute()
             .await
-            .unwrap();
+            .map_err(|e| StoreError::Lance {
+                op: "execute query",
+                source: e,
+            })?;
 
-        let batches: Vec<RecordBatch> = results.try_collect().await.unwrap();
+        let batches: Vec<RecordBatch> =
+            results.try_collect().await.map_err(|e| StoreError::Lance {
+                op: "collect query results",
+                source: e,
+            })?;
 
-        records_to_results(batches)
+        Ok(records_to_results(batches))
     }
 }
 
@@ -281,17 +312,17 @@ mod tests {
     #[tokio::test]
     async fn insert_and_query_roundtrip() {
         let dir = TempDir::new().unwrap();
-        let store = LanceStore::connect(dir.path()).await;
+        let store = LanceStore::connect(dir.path()).await.unwrap();
 
         let chunks = vec![
             sample_chunk("a", "text a", Some(unit_embedding(0))),
             sample_chunk("b", "text b", Some(unit_embedding(1))),
             sample_chunk("c", "text c", Some(unit_embedding(2))),
         ];
-        store.insert(&chunks).await;
+        store.insert(&chunks).await.unwrap();
 
         let query_vec = unit_embedding(0);
-        let results = store.query(&query_vec, 2).await;
+        let results = store.query(&query_vec, 2).await.unwrap();
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].chunk.id, "a");
@@ -301,14 +332,15 @@ mod tests {
     #[tokio::test]
     async fn connect_is_idempotent_across_calls() {
         let dir = TempDir::new().unwrap();
-        let store = LanceStore::connect(dir.path()).await;
+        let store = LanceStore::connect(dir.path()).await.unwrap();
         store
             .insert(&[sample_chunk("a", "text a", Some(unit_embedding(0)))])
-            .await;
+            .await
+            .unwrap();
         drop(store);
 
-        let store2 = LanceStore::connect(dir.path()).await;
-        let results = store2.query(&unit_embedding(0), 1).await;
+        let store2 = LanceStore::connect(dir.path()).await.unwrap();
+        let results = store2.query(&unit_embedding(0), 1).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].chunk.id, "a");
     }

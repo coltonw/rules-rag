@@ -15,28 +15,26 @@ pub struct Chunk {
     pub embedding: Option<Vec<f32>>,
 }
 
-pub trait Chunker {
-    fn chunk(&self, text_path: &Path) -> Vec<Chunk>;
-}
-
 pub struct RetrievalResult {
     pub chunk: Chunk,
     pub score: f32,
 }
 
-pub trait VectorStore {
-    async fn connect(path: &Path) -> Self;
-    async fn insert(&self, chunks: &[Chunk]);
-    async fn query(&self, embedding: &[f32], k: usize) -> Vec<RetrievalResult>;
+pub trait VectorStore: Sized {
+    type Error: std::error::Error + Send + Sync + 'static;
+    async fn connect(path: &Path) -> Result<Self, Self::Error>;
+    async fn insert(&self, chunks: &[Chunk]) -> Result<(), Self::Error>;
+    async fn query(&self, embedding: &[f32], k: usize)
+    -> Result<Vec<RetrievalResult>, Self::Error>;
 }
 
-pub trait Embedder {
+pub trait Embedder: Sized {
     fn new() -> Self;
     async fn generate(&self, inputs: &[impl AsRef<str>]) -> Vec<Vec<f32>>;
     async fn generate_one(&self, input: &str) -> Vec<f32>;
 }
 
-pub trait Generator {
+pub trait Generator: Sized {
     fn new() -> Self;
     async fn generate(&self, query: &str, retrieval: &[RetrievalResult]) -> String;
 }

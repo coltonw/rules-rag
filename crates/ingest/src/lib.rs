@@ -1,29 +1,45 @@
-use rag_core::{Chunk, Chunker};
+use rag_core::Chunk;
 use regex::Regex;
 use std::collections::HashSet;
 use std::fs::read_to_string;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use tiktoken_rs::cl100k_base_singleton;
+
+pub trait Chunker {
+    fn chunk(&self, text_path: &Path) -> Result<Vec<Chunk>, IngestError>;
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum IngestError {
+    #[error("failed to read text file at {path}")]
+    ReadFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+}
 
 pub struct FixedSizeChunker {
     pub size: usize,
     pub overlap: usize,
 }
 
+static NEW_PAGE_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^=+ PAGE \d+ =+$").unwrap());
+
 impl Chunker for FixedSizeChunker {
-    fn chunk(&self, text_path: &Path) -> Vec<Chunk> {
-        let Ok(full_text) = read_to_string(text_path) else {
-            // TODO: better error handling
-            panic!("Failed to read file {}", text_path.display());
-        };
+    fn chunk(&self, text_path: &Path) -> Result<Vec<Chunk>, IngestError> {
+        let full_text = read_to_string(text_path).map_err(|e| IngestError::ReadFile {
+            path: text_path.to_path_buf(),
+            source: e,
+        })?;
 
         let tokenizer = cl100k_base_singleton();
         let lines = full_text.lines();
         let mut pages: Vec<Vec<u32>> = Vec::new();
-        let new_page_regex = Regex::new(r"^=+ PAGE \d+ =+$").unwrap();
         let allowed_specials = &HashSet::new();
         for line in lines {
-            if new_page_regex.is_match(line) {
+            if NEW_PAGE_RE.is_match(line) {
                 pages.push(Vec::new());
                 continue;
             }
@@ -38,11 +54,9 @@ impl Chunker for FixedSizeChunker {
             // TODO: have chunks go through page boundaries
             let mut index = 0;
             while index < page.len() {
-                let Ok(text) = tokenizer.decode(&page[index..(index + self.size).min(page.len())])
-                else {
-                    println!("Error decoding the thing I literally JUST encoded??");
-                    break;
-                };
+                let text = tokenizer
+                    .decode(&page[index..(index + self.size).min(page.len())])
+                    .expect("Error decoding what I JUST encoded should never happen");
                 // TODO: id and game should not be hardcoded
                 chunks.push(Chunk {
                     id: "id".to_string(),
@@ -61,6 +75,6 @@ impl Chunker for FixedSizeChunker {
                 }
             }
         }
-        chunks
+        Ok(chunks)
     }
 }
