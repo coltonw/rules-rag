@@ -166,43 +166,6 @@ Without this, Phase 2+ changes are flying blind.
 
 ## PDF extraction pipeline
 
-`scripts/pdf2txt.sh` is the entry point. Internally it chains gs CropBox
-normalization → Marker (ML-based layout analysis + OCR via surya) →
-NFKC perl normalization. Marker outputs paginated Markdown; the script
-rewrites its `{N}===PAGE_BREAK===` tokens to our `===== PAGE M =====`
-format (1-indexed) that the Rust ingest crate parses.
-
-Marker runs from a venv at `scripts/.venv/` (gitignored). Bootstrap once:
-
-```
-python3 -m venv scripts/.venv
-scripts/.venv/bin/pip install marker-pdf
-```
-
-First run downloads ~1 GB of model weights into `~/.cache/datalab/`.
-Subsequent runs reuse them. Marker auto-detects CUDA and uses the GPU
-when available; on a 3080, ~5s/page with `--force_ocr`.
-
-Output quality is dramatically better than the previous hand-rolled
-`pdftotext + XY-cut` pipeline — Marker's layout model handles
-multi-column flow, inline figures splitting wrapped lines, and even
-labels-on-artwork pages (Quacks contents page) reasonably well.
-
-Gotchas already paid for:
-
-- **gs `-dUseCropBox` is load-bearing.** Some rulebooks (Pandemic) are
-  2-up scans where each PDF page is the same scan with a CropBox selecting
-  only the left or right half. Skipping the CropBox step makes the
-  extractor read from the MediaBox and emit duplicated content from both
-  halves. Always normalize first.
-- **`--force_ocr` is load-bearing.** Marker's default text-extraction
-  path uses pypdfium, which silently drops glyphs whose ToUnicode CMap is
-  partial — Pandemic's stylized initial-cap "Th" got swallowed, producing
-  "e clock is ticking" instead of "The clock is ticking". Forcing OCR
-  via surya re-reads the rendered glyph and recovers the character.
-  Slower (~5s/page on GPU vs ~1s) but robust against the kinds of font
-  weirdness rulebook designers love.
-- **Inline icons render as emoji approximations** under OCR (e.g. the
-  Challengers fans icon comes through as 👚). Harmless for retrieval —
-  surrounding words still match — and arguably useful as a marker that
-  an icon was there.
+`scripts/pdf2txt.sh` extracts a rulebook PDF into our paginated
+`===== PAGE N =====` text format (gs CropBox → Marker → NFKC). See the
+script header for pipeline stages, bootstrap instructions, and gotchas.

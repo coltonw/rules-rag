@@ -23,6 +23,26 @@
 #   3. Unicode NFKC normalization to fold ligatures (ﬁ→fi, ﬂ→fl) and
 #      compatibility forms common in PDF text streams. Marker does most
 #      of this internally; this is a belt-and-suspenders pass.
+#
+# Bootstrap:
+#   Marker runs from a venv at scripts/.venv/ (gitignored). One-time setup:
+#     python3 -m venv scripts/.venv
+#     scripts/.venv/bin/pip install marker-pdf
+#   First invocation downloads ~1 GB of model weights into ~/.cache/datalab/;
+#   subsequent runs reuse them. Marker auto-detects CUDA; on a 3080, ~5s/page
+#   with --force_ocr (vs ~1s without, but see the --force_ocr note below).
+#
+# Why Marker:
+#   Replaced a hand-rolled `pdftotext + XY-cut` pipeline. Marker's layout
+#   model handles multi-column flow, inline figures splitting wrapped lines,
+#   and labels-on-artwork pages (e.g. Quacks contents page) substantially
+#   better. Tradeoff: slower and pulls in ML deps, but quality gain is large.
+#
+# Known quirk (not fixed here):
+#   Inline icons render as unrelated emoji approximations under OCR — e.g.
+#   the Challengers fans icon comes through as 👚. Harmless for retrieval
+#   (surrounding words still match) and arguably useful as a marker that
+#   an icon was there. Revisit if doing icon-aware retrieval.
 
 set -euo pipefail
 

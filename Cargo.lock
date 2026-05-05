@@ -1797,6 +1797,8 @@ name = "eval"
 version = "0.1.0"
 dependencies = [
  "rag-core",
+ "serde",
+ "serde_json",
  "thiserror",
  "tracing",
 ]
