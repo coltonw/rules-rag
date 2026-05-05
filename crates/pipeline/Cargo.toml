@@ -1,0 +1,12 @@
+[package]
+name = "pipeline"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+embed = { path = "../embed" }
+generate = { path = "../generate" }
+rag-core = { path = "../rag-core" }
+store = { path = "../store" }
+thiserror = "2.0.18"
+tracing = "0.1.44"

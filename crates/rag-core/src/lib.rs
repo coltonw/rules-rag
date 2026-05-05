@@ -35,6 +35,11 @@ pub struct RetrievalResult {
     pub score: f32,
 }
 
+pub struct Answer {
+    pub text: String,
+    pub retrieval: Vec<RetrievalResult>,
+}
+
 pub trait VectorStore: Sized {
     type Error: std::error::Error + Send + Sync + 'static;
     async fn connect(path: &Path) -> Result<Self, Self::Error>;

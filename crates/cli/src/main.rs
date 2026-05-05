@@ -4,6 +4,7 @@ use embed::OllamaEmbedder;
 use generate::OllamaGenerator;
 use ingest::manifest::DocMeta;
 use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
+use pipeline::Pipeline;
 use rag_core::{Chunk, Embedder as _, Generator as _, VectorStore as _};
 use std::path::Path;
 use std::path::PathBuf;
@@ -33,6 +34,8 @@ enum Command {
     },
     /// Ask the chatbot a rules question.
     Ask { question: String },
+    /// Run the chatbot eval.
+    Eval,
 }
 
 #[tokio::main]
@@ -116,15 +119,13 @@ async fn main() -> anyhow::Result<()> {
             println!("{} rulebooks ingested", to_ingest.len());
         }
         Command::Ask { question } => {
-            let results = store
-                .query(&embedder.generate_one(&question).await?, 2)
-                .await?;
-
             let generator = OllamaGenerator::new();
-            let answer = generator.generate(&question, &results).await?;
+            let pipeline = Pipeline::new(store, embedder, generator);
 
-            println!("{}", answer);
+            let answer = pipeline.ask(&question).await?;
+            println!("{}", answer.text);
         }
+        Command::Eval => {}
     }
 
     Ok(())

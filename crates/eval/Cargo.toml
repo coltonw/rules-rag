@@ -1,0 +1,9 @@
+[package]
+name = "eval"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rag-core = { path = "../rag-core" }
+thiserror = "2.0.18"
+tracing = "0.1.44"
