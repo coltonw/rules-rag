@@ -1,6 +1,7 @@
 use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
 use embed::OllamaEmbedder;
+use eval::Evaluator;
 use generate::OllamaGenerator;
 use ingest::manifest::DocMeta;
 use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
@@ -125,7 +126,22 @@ async fn main() -> anyhow::Result<()> {
             let answer = pipeline.ask(&question).await?;
             println!("{}", answer.text);
         }
-        Command::Eval => {}
+        Command::Eval => {
+            let generator = OllamaGenerator::new();
+            let pipeline = Pipeline::new(store, embedder, generator);
+
+            let evaluator = Evaluator::new(pipeline);
+            let evaluation = evaluator.run().await?;
+            println!("{:.1}%", evaluation.ratio * 100.0);
+            if evaluation.ratio < 1.0 {
+                println!("Wrong answers:")
+            }
+            for wrong in evaluation.evals.iter().filter(|e| !e.correct) {
+                println!("Question: {}", wrong.example.question);
+                println!("Expected: {:?}", wrong.example.expected_answer_contains);
+                println!("Answer: {}", wrong.answer.text);
+            }
+        }
     }
 
     Ok(())

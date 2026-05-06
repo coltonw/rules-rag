@@ -1,7 +1,7 @@
 {"id": "pandemic-001", "game": "Pandemic", "question": "How many actions are in a turn?", "expected_answer_contains": ["4"], "expected_pages": [4], "tags": ["easy"]}
 {"id": "pandemic-002", "game": "Pandemic", "question": "How does a shuttle flight work?", "expected_answer_contains": ["Research Station", "move"], "expected_pages": [4], "tags": ["easy"]}
 {"id": "pandemic-003", "game": "Pandemic", "question": "What are the special actions I can take on my turn?", "expected_answer_contains": ["Research Station", "Discover A Cure", "Treat Disease", "Share Knowledge"], "expected_pages": [5], "tags": ["medium"]}
-{"id": "pandemic-004", "game": "Pandemic", "question": "How does it work if an outbreak chain reaction casues a cube to go back into the city the outbreak started in?", "expected_answer_contains": ["once", "cube"], "expected_pages": [7], "tags": ["medium"]}
+{"id": "pandemic-004", "game": "Pandemic", "question": "How does it work if an outbreak chain reaction causes a cube to go back into the city the outbreak started in?", "expected_answer_contains": ["once", "cube"], "expected_pages": [7], "tags": ["medium"]}
 {"id": "pandemic-005", "game": "Pandemic", "question": "Do I shuffle all the cards of the infection deck together during an epidemic?", "expected_answer_contains": ["no"], "expected_pages": [6], "tags": ["medium"]}
 {"id": "pandemic-006", "game": "Pandemic", "question": "Do any roles get better special abilities throughout the game?", "expected_answer_contains": ["yes", "medic", "cured"], "expected_pages": [5], "tags": ["hard"]}
 {"id": "pandemic-007", "game": "Pandemic", "question": "Does the game end when you have to place the last cube of a color on the board?", "expected_answer_contains": ["no", "cubes"], "expected_pages": [7], "tags": ["hard"]}
@@ -10,3 +10,4 @@
 {"id": "challengers-003", "game": "Challengers!", "question": "Does a card still trigger Flag loss if it was on the bottom of the pile?", "expected_answer_contains": ["no", "latest revealed"], "expected_pages": [3, 4], "tags": ["hard"]}
 {"id": "challengers-004", "game": "Challengers!", "question": "Who starts with the flag if both players won their last match?", "expected_answer_contains": ["toss", "flag", "tie"], "expected_pages": [3], "tags": ["medium"]}
 {"id": "challengers-005", "game": "Challengers!", "question": "Which trophy do I get on round 1?", "expected_answer_contains": ["1", "descending", "top"], "expected_pages": [2, 3], "tags": ["hard"]}
+{"id": "the-quacks-of-quedlinberg-001", "game": "The Quacks of Quedlinberg", "question": "How many white chips until you bust?", "expected_answer_contains": ["exceeds the value of 7", "explode"], "expected_pages": [4], "tags": ["medium"]}
