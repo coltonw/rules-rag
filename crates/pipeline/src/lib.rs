@@ -1,6 +1,7 @@
+#![allow(async_fn_in_trait)]
 use embed::OllamaEmbedder;
 use generate::OllamaGenerator;
-use rag_core::{Answer, Embedder as _, Generator as _, RetrievalResult, VectorStore as _};
+use rag_core::{Answer, Embedder, Generator, Pipeline, RetrievalResult, VectorStore};
 use store::LanceStore;
 
 #[derive(thiserror::Error, Debug)]
@@ -13,13 +14,13 @@ pub enum PipelineError {
     Generate(#[from] generate::GenerateError),
 }
 
-pub struct Pipeline {
+pub struct NaivePipeline {
     store: LanceStore,
     embedder: OllamaEmbedder,
     generator: OllamaGenerator,
 }
 
-impl Pipeline {
+impl NaivePipeline {
     pub fn new(store: LanceStore, embedder: OllamaEmbedder, generator: OllamaGenerator) -> Self {
         Self {
             store,
@@ -27,8 +28,11 @@ impl Pipeline {
             generator,
         }
     }
+}
 
-    pub async fn retrieve(&self, question: &str) -> Result<Vec<RetrievalResult>, PipelineError> {
+impl Pipeline for NaivePipeline {
+    type Error = PipelineError;
+    async fn retrieve(&self, question: &str) -> Result<Vec<RetrievalResult>, PipelineError> {
         let results = self
             .store
             .query(&self.embedder.generate_one(question).await?, 5)
@@ -37,7 +41,7 @@ impl Pipeline {
         Ok(results)
     }
 
-    pub async fn ask(&self, question: &str) -> Result<Answer, PipelineError> {
+    async fn ask(&self, question: &str) -> Result<Answer, PipelineError> {
         let results = self.retrieve(question).await?;
         let answer = self.generator.generate(question, &results).await?;
 

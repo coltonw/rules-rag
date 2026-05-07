@@ -5,8 +5,8 @@ use eval::Evaluator;
 use generate::OllamaGenerator;
 use ingest::manifest::DocMeta;
 use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
-use pipeline::Pipeline;
-use rag_core::{Chunk, Embedder as _, Generator as _, VectorStore as _};
+use pipeline::NaivePipeline;
+use rag_core::{Chunk, Embedder as _, Generator as _, Pipeline as _, VectorStore as _};
 use std::path::Path;
 use std::path::PathBuf;
 use store::LanceStore;
@@ -121,14 +121,14 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Ask { question } => {
             let generator = OllamaGenerator::new();
-            let pipeline = Pipeline::new(store, embedder, generator);
+            let pipeline = NaivePipeline::new(store, embedder, generator);
 
             let answer = pipeline.ask(&question).await?;
             println!("{}", answer.text);
         }
         Command::Eval => {
             let generator = OllamaGenerator::new();
-            let pipeline = Pipeline::new(store, embedder, generator);
+            let pipeline = NaivePipeline::new(store, embedder, generator);
 
             let evaluator = Evaluator::new(pipeline);
             let evaluation = evaluator.run().await?;
@@ -136,7 +136,11 @@ async fn main() -> anyhow::Result<()> {
             if evaluation.ratio < 1.0 {
                 println!("Wrong answers:")
             }
-            for wrong in evaluation.evals.iter().filter(|e| !e.correct) {
+            for wrong in evaluation
+                .evals
+                .iter()
+                .filter(|e| e.metrics.answer_contains == Some(false))
+            {
                 println!("Question: {}", wrong.example.question);
                 println!("Expected: {:?}", wrong.example.expected_answer_contains);
                 println!("Answer: {}", wrong.answer.text);

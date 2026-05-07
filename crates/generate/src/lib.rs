@@ -17,7 +17,7 @@ pub enum GenerateError {
 pub struct OllamaGenerator {
     client: Client,
     base_url: String, // e.g. "http://localhost:11434"
-    model: String,    // e.g. "gemma4:e2b"
+    model: String,    // e.g. "gemma4:e4b"
 }
 
 #[derive(serde::Serialize)]
@@ -28,8 +28,8 @@ struct GenerateRequest<'a> {
 }
 
 // Example responses:
-// {"model":"gemma4:e2b","created_at":"2026-05-03T14:06:34.6943474Z","response":" pink","done":false}
-// {"model":"gemma4:e2b","created_at":"2026-05-03T14:06:34.8352684Z","response":"","done":true,"done_reason":"stop","context":[...],
+// {"model":"gemma4:e4b","created_at":"2026-05-03T14:06:34.6943474Z","response":" pink","done":false}
+// {"model":"gemma4:e4b","created_at":"2026-05-03T14:06:34.8352684Z","response":"","done":true,"done_reason":"stop","context":[...],
 //   "total_duration":33802973200,"load_duration":236411800,"prompt_eval_count":22,"prompt_eval_duration":96124400,"eval_count":1263,
 //   "eval_duration":32965842900}
 #[derive(serde::Deserialize)]
@@ -132,7 +132,7 @@ impl Generator for OllamaGenerator {
             client,
             // TODO: cargo.config for stuff like this
             base_url: "http://localhost:11434".to_string(),
-            model: "gemma4:e2b".to_string(),
+            model: "gemma4:e4b".to_string(),
         }
     }
 

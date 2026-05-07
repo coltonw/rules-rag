@@ -30,11 +30,13 @@ pub enum DocType {
     Faq,
 }
 
+#[derive(Serialize)]
 pub struct RetrievalResult {
     pub chunk: Chunk,
     pub score: f32,
 }
 
+#[derive(Serialize)]
 pub struct Answer {
     pub text: String,
     pub retrieval: Vec<RetrievalResult>,
@@ -63,4 +65,10 @@ pub trait Generator: Sized {
         query: &str,
         retrieval: &[RetrievalResult],
     ) -> Result<String, Self::Error>;
+}
+
+pub trait Pipeline {
+    type Error: std::error::Error + Send + Sync + 'static;
+    async fn retrieve(&self, question: &str) -> Result<Vec<RetrievalResult>, Self::Error>;
+    async fn ask(&self, question: &str) -> Result<Answer, Self::Error>;
 }
