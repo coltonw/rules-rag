@@ -5,7 +5,7 @@ doc_type = "rules"
 
 [[document]]
 file = "./data/pdfs/challengers-rulebook.txt"
-game = "Challengers"
+game = "Challengers!"
 doc_type = "rules"
 
 [[document]]

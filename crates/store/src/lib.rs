@@ -169,7 +169,7 @@ impl VectorStore for LanceStore {
         embedding: &[f32],
         options: &QueryOptions,
     ) -> Result<Vec<RetrievalResult>, StoreError> {
-        let results = self
+        let query = self
             .table
             .query()
             .nearest_to(embedding)
@@ -178,13 +178,16 @@ impl VectorStore for LanceStore {
                 source: e,
             })?
             .distance_type(DistanceType::Cosine)
-            .limit(options.top_k)
-            .execute()
-            .await
-            .map_err(|e| StoreError::Lance {
-                op: "execute query",
-                source: e,
-            })?;
+            .limit(options.top_k);
+        let query = if let Some(game) = &options.game_filter {
+            query.only_if(format!("game = '{}'", game.replace('\'', "''")))
+        } else {
+            query
+        };
+        let results = query.execute().await.map_err(|e| StoreError::Lance {
+            op: "execute query",
+            source: e,
+        })?;
 
         let batches: Vec<RecordBatch> =
             results.try_collect().await.map_err(|e| StoreError::Lance {
@@ -324,5 +327,106 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].chunk.id, "a");
+    }
+
+    #[tokio::test]
+    async fn game_filter_restricts_results() {
+        let dir = TempDir::new().unwrap();
+        let store = LanceStore::connect(dir.path()).await.unwrap();
+
+        let chunks = vec![
+            Chunk {
+                id: "pandemic-1".into(),
+                text: "pandemic text".into(),
+                game: "Pandemic".into(),
+                doc_type: DocType::Rules,
+                page: Some(1),
+                embedding: Some(unit_embedding(0)),
+            },
+            Chunk {
+                id: "catan-1".into(),
+                text: "catan text".into(),
+                game: "Catan".into(),
+                doc_type: DocType::Rules,
+                page: Some(1),
+                embedding: Some(unit_embedding(1)),
+            },
+            Chunk {
+                id: "obrien-1".into(),
+                text: "apostrophe text".into(),
+                game: "O'Brien's Game".into(),
+                doc_type: DocType::Rules,
+                page: Some(1),
+                embedding: Some(unit_embedding(2)),
+            },
+        ];
+        store.insert(&chunks).await.unwrap();
+
+        let unfiltered = store
+            .query(
+                &unit_embedding(0),
+                &QueryOptions {
+                    top_k: 10,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(unfiltered.len(), 3, "no filter should return all chunks");
+
+        let pandemic = store
+            .query(
+                &unit_embedding(0),
+                &QueryOptions {
+                    top_k: 10,
+                    game_filter: Some("Pandemic".into()),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(pandemic.len(), 1);
+        assert_eq!(pandemic[0].chunk.id, "pandemic-1");
+
+        let catan = store
+            .query(
+                &unit_embedding(0),
+                &QueryOptions {
+                    top_k: 10,
+                    game_filter: Some("Catan".into()),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(catan.len(), 1);
+        assert_eq!(catan[0].chunk.id, "catan-1");
+
+        let apostrophe = store
+            .query(
+                &unit_embedding(0),
+                &QueryOptions {
+                    top_k: 10,
+                    game_filter: Some("O'Brien's Game".into()),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            apostrophe.len(),
+            1,
+            "single-quote escaping should not break the filter"
+        );
+        assert_eq!(apostrophe[0].chunk.id, "obrien-1");
+
+        let missing = store
+            .query(
+                &unit_embedding(0),
+                &QueryOptions {
+                    top_k: 10,
+                    game_filter: Some("Wingspan".into()),
+                },
+            )
+            .await
+            .unwrap();
+        assert!(missing.is_empty(), "no matches should yield empty results");
     }
 }
