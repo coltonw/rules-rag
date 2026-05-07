@@ -1,7 +1,7 @@
 use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
 use embed::OllamaEmbedder;
-use eval::{Evaluator, ExampleOutcome};
+use eval::{Evaluator, ExampleMetrics, ExampleOutcome};
 use generate::OllamaGenerator;
 use ingest::manifest::DocMeta;
 use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
@@ -142,20 +142,49 @@ async fn main() -> anyhow::Result<()> {
 
             let evaluator = Evaluator::new(pipeline);
             let evaluation = evaluator.run().await?;
-            println!("{:.1}%", evaluation.ratio * 100.0);
-            if evaluation.ratio < 1.0 {
-                println!("Wrong answers:")
+            println!("Quote match:  {:.1}%", evaluation.quote_ratio * 100.0);
+            println!("Chunk match:  {:.1}%", evaluation.chunk_ratio * 100.0);
+            println!("Refusal rate: {:.1}%", evaluation.refusal_ratio * 100.0);
+            let any_failures = evaluation.quote_ratio < 1.0
+                || evaluation.chunk_ratio < 1.0
+                || evaluation.refusal_ratio > 0.0;
+            if any_failures {
+                println!("\nWrong answers:\n")
             }
-            for wrong in evaluation
-                .evals
-                .iter()
-                .filter(|e| e.outcome.metrics().and_then(|m| m.answer_contains) == Some(false))
-            {
-                println!("Question: {}", wrong.example.question);
-                println!("Expected: {:?}", wrong.example.expected_answer_contains);
-                if let ExampleOutcome::Ok { answer, .. } = &wrong.outcome {
-                    println!("Answer: {}", answer.text);
+            for wrong in evaluation.evals.iter().filter(|e| {
+                e.outcome
+                    .metrics()
+                    .is_some_and(|m| !m.quote_match || !m.chunk_match || m.refused)
+            }) {
+                println!("Question:\n{}", wrong.example.question);
+                if let ExampleOutcome::Ok {
+                    metrics:
+                        ExampleMetrics {
+                            quote_match,
+                            chunk_match,
+                            refused,
+                        },
+                    answer,
+                } = &wrong.outcome
+                {
+                    if *refused {
+                        println!("Refusal");
+                    } else if !chunk_match {
+                        println!("Chunk failure");
+                        println!("Expected chunk(s):");
+                        for c in &wrong.example.expected_chunk_contains {
+                            println!("  - {}", c);
+                        }
+                    } else if !quote_match {
+                        println!("Quote failure");
+                        println!("Expected quote(s):");
+                        for q in &wrong.example.expected_quote {
+                            println!("  - {}", q);
+                        }
+                    }
+                    println!("Answer:\n{}", answer.text);
                 }
+                println!();
             }
         }
     }

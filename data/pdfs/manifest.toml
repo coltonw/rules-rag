@@ -12,3 +12,8 @@ doc_type = "rules"
 file = "./data/pdfs/the-quacks-of-quedlinburg-rulebook.txt"
 game = "The Quacks of Quedlinberg"
 doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/mage-knight-rulebook.txt"
+game = "Mage Knight Board Game"
+doc_type = "rules"

@@ -101,7 +101,16 @@ fi
 # pypdfium, which silently drops glyphs whose ToUnicode CMap is partial —
 # e.g. Pandemic's stylized initial-cap "Th" → "e clock is ticking". OCR via
 # surya re-reads the rendered glyph and recovers the character. Slower but
-# robust across the kinds of font weirdness rulebook designers love.
+# robust against the kinds of font weirdness rulebook designers love.
+#
+# --use_llm was tried with local gemma4:e4b and reverted: ~5x slowdown
+# for marginal quality wins (Robot Deck split in Challengers stayed
+# split; star icons stayed inconsistent), and the
+# LLMImageDescriptionProcessor pollutes the text stream with paragraph-
+# long captions for every figure. If revisiting, the targeted form is
+# `--use_llm --processors <full default list minus
+# LLMImageDescriptionProcessor>` plus a faster vision model
+# (qwen2.5-vl:3b is the obvious next try).
 "$marker_cli" \
   --output_format markdown \
   --paginate_output \
