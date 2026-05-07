@@ -33,6 +33,9 @@ This is a learning project first, a tool second. The point is to implement
 modern RAG techniques from scratch and understand them, not to ship the
 slickest possible product.
 
+**Roadmap and current phase live in `docs/plan.md`.** Read it before
+suggesting where new work belongs.
+
 ## Tech stack
 
 - **Language:** Rust (workspace, edition 2024).
@@ -41,14 +44,14 @@ slickest possible product.
   - Embeddings: smallest viable `qwen3-embedding`.
   - LLM: `gemma4:e4b` (small, fast, good enough for a learning project).
   - Reranker (Phase 3+): `bge-reranker-v2-m3` or LLM-as-reranker fallback.
-- **PDF extraction:** `pdftotext` (poppler) shelled out, or `pdf-extract` crate.
+  - Judge (Phase 3.3): Anthropic API (Sonnet/Opus) — the only non-local model.
+- **PDF extraction:** `pdftotext` (poppler) shelled out via `scripts/pdf2txt.sh`.
 - **Async:** Tokio.
 - **Errors:** `thiserror` in libs, `anyhow` in the CLI.
 - **Config:** single `config.toml` (likely `figment` or `config` crate).
 - **Token counting:** `tiktoken-rs` with cl100k as a proxy across models.
-- **LLM orchestration:** raw Ollama HTTP for Phases 1–2; consider `rig` at
-  Phase 3 once rewriting/reranking/generation are juggling enough to justify
-  an abstraction.
+- **LLM orchestration:** raw Ollama HTTP. Consider `rig` at Phase 3 once
+  rewriting/reranking/generation are juggling enough to justify abstraction.
 
 ## Crate layout
 
@@ -57,7 +60,7 @@ implementations behind a trait without rewriting the pipeline.
 
 ```
 crates/
-├── core/        Domain types and traits. Chunk, Document, Query,
+├── rag-core/    Domain types and traits. Chunk, Document, Query,
 │                RetrievalResult. Trait definitions for Chunker,
 │                Embedder, VectorStore, Retriever, Reranker, Generator.
 ├── ingest/      PDF parsing, chunking strategies (fixed → paragraph →
@@ -65,16 +68,17 @@ crates/
 ├── embed/       Ollama embedding client.
 ├── store/       LanceDB wrapper. Schema + table mgmt.
 ├── retrieve/    Search strategies. Vector → hybrid (BM25 + RRF) →
-│                rerank → query rewrite.
+│                rerank → query rewrite. (Added in Phase 1.3.2.)
 ├── generate/    LLM answer generation. Prompt templates + Ollama client.
 ├── pipeline/    Orchestration. Wires retrieve + generate together.
 ├── eval/        Golden dataset loading, metrics (Recall@k, MRR,
-│                answer-contains).
+│                answer-contains, refusal-rate, judge).
 └── cli/         Binary. Subcommands: ingest, ask, eval.
 ```
 
-Currently scaffolded: `core`, `ingest`, `cli`. The rest will be added as
-their phase comes up.
+Currently scaffolded: `rag-core`, `ingest`, `embed`, `store`, `generate`,
+`pipeline`, `eval`, `cli`. The `retrieve` crate is added in Phase 1.3.2;
+others as their phase comes up.
 
 ```
 data/
@@ -84,85 +88,16 @@ data/
     └── golden.jsonl   Hand-written eval set.
 ```
 
-## Phased build plan
-
-Each phase ends with a re-run of the eval harness so we can measure whether
-the new technique actually helped.
-
-### Phase 1 — Naive RAG end-to-end
-Smallest possible version of every component. Fixed-size chunker
-(512 tokens, 64 overlap), single-table LanceDB, top-k cosine search,
-one-shot answer prompt with citation.
-
-CLI: `bgrag ingest <pdf> --game <name>` and `bgrag ask <question> --game <name>`.
-
-Goal: working pipeline. Quality will be mediocre; that's expected.
-
-### Phase 1.1 — Ingest manifest
-A `data/pdfs/manifest.toml` (array-of-tables) describes every document so
-re-ingestion doesn't require retyping `--game` and friends every time.
-
-```toml
-[[document]]
-file = "pandemic-rules.txt"
-game = "Pandemic"
-doc_type = "rules"
-```
-
-Deserializes to `Vec<DocMeta>` via `serde` + `toml`. CLI changes:
-`bgrag ingest` with no args ingests every entry; `bgrag ingest <path>`
-looks up that file's metadata in the manifest. `--game` becomes an
-optional override. `doc_type` threads through `Chunk` and the LanceDB
-schema so it's filterable later (rules vs FAQ vs transcript).
-
-Pipeline knobs (chunk size, overlap, top-k) stay out of the manifest —
-those belong in the eventual `config.toml`. The manifest is per-document
-facts only.
-
-### Phase 1.2 — Eval harness (do this BEFORE Phase 2)
-Hand-write 20–30 golden questions across 2–3 well-known games. Implement
-Recall@k, MRR, and a "answer contains expected phrases" check. Add
-`bgrag eval`.
-
-Without this, Phase 2+ changes are flying blind.
-
-### Phase 2 — Hybrid search + multi-game
-- BM25 via LanceDB's Tantivy-backed full-text search (start here; standalone
-  `tantivy` crate is the fallback if needed).
-- Reciprocal Rank Fusion to combine vector + BM25.
-- Metadata filter on `game` per query.
-- Paragraph-aware chunker that keeps section headers attached.
-- Ingest the full collection.
-
-### Phase 3 — Query rewriting + reranking
-- LLM query rewriting (consider multi-query: 3 variants → fuse).
-- Cross-encoder reranker. Pipeline: retrieve top-20 → rerank → top-5 → generate.
-- Glossary index: extract defined terms into their own table, inject
-  definitions into context when terms appear in a query.
-
-### Phase 4 — Advanced chunking
-- Hierarchical chunking (small-to-big retrieval): retrieve at fine
-  granularity, return parent paragraph/section as context.
-- Late chunking using qwen3's long context: embed whole document, slice
-  embeddings at chunk boundaries afterward.
-- Cross-reference resolver: detect "see page X" / "see [Section]" patterns,
-  auto-pull the referenced chunk alongside.
-
-## Out of scope
-
-- **YouTube transcripts.** Tempting but cut for now.
-- **Web UI / productization.** CLI is the frontend. Maybe later, not now.
-- **BGG scraping.** Official FAQ PDFs are higher quality; revisit only if needed.
-- **Ingestion automation** (watchers, queues, schedulers). Manual CLI is fine.
-- **Agent frameworks.** Rust ecosystem isn't there; would be fighting abstractions.
-
 ## Conventions
 
-- One `config.toml` for model names, paths, top-k, etc. No hardcoded magic numbers.
-- Traits live in `core`. Implementations live in their own crate. Pipeline
+- One `config.toml` for model names, paths, top-k, etc. No hardcoded magic
+  numbers.
+- Traits live in `rag-core`. Implementations live in their own crate. Pipeline
   code depends on traits, not concrete types.
-- When adding a new technique, add it behind the existing trait — don't
-  fork the pipeline.
+- When adding a new technique, add it behind the existing trait — don't fork
+  the pipeline.
+- Each phase ends with re-running the eval to measure whether the new
+  technique actually helped.
 
 ## PDF extraction pipeline
 
