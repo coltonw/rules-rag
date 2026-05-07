@@ -1,7 +1,7 @@
 #![allow(async_fn_in_trait)]
 use embed::OllamaEmbedder;
 use generate::OllamaGenerator;
-use rag_core::{Answer, Embedder, Generator, Pipeline, RetrievalResult, VectorStore};
+use rag_core::{Answer, Embedder, Generator, Pipeline, QueryOptions, RetrievalResult, VectorStore};
 use store::LanceStore;
 
 #[derive(thiserror::Error, Debug)]
@@ -32,17 +32,21 @@ impl NaivePipeline {
 
 impl Pipeline for NaivePipeline {
     type Error = PipelineError;
-    async fn retrieve(&self, question: &str) -> Result<Vec<RetrievalResult>, PipelineError> {
+    async fn retrieve(
+        &self,
+        question: &str,
+        options: &QueryOptions,
+    ) -> Result<Vec<RetrievalResult>, PipelineError> {
         let results = self
             .store
-            .query(&self.embedder.generate_one(question).await?, 5)
+            .query(&self.embedder.generate_one(question).await?, options)
             .await?;
 
         Ok(results)
     }
 
-    async fn ask(&self, question: &str) -> Result<Answer, PipelineError> {
-        let results = self.retrieve(question).await?;
+    async fn ask(&self, question: &str, options: &QueryOptions) -> Result<Answer, PipelineError> {
+        let results = self.retrieve(question, options).await?;
         let answer = self.generator.generate(question, &results).await?;
 
         Ok(Answer {

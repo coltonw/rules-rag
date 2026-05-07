@@ -42,12 +42,21 @@ pub struct Answer {
     pub retrieval: Vec<RetrievalResult>,
 }
 
+#[derive(Default)]
+pub struct QueryOptions {
+    pub top_k: usize,
+    pub game_filter: Option<String>,
+}
+
 pub trait VectorStore: Sized {
     type Error: std::error::Error + Send + Sync + 'static;
     async fn connect(path: &Path) -> Result<Self, Self::Error>;
     async fn insert(&self, chunks: &[Chunk]) -> Result<(), Self::Error>;
-    async fn query(&self, embedding: &[f32], k: usize)
-    -> Result<Vec<RetrievalResult>, Self::Error>;
+    async fn query(
+        &self,
+        embedding: &[f32],
+        options: &QueryOptions,
+    ) -> Result<Vec<RetrievalResult>, Self::Error>;
 }
 
 pub trait Embedder {
@@ -69,6 +78,10 @@ pub trait Generator: Sized {
 
 pub trait Pipeline {
     type Error: std::error::Error + Send + Sync + 'static;
-    async fn retrieve(&self, question: &str) -> Result<Vec<RetrievalResult>, Self::Error>;
-    async fn ask(&self, question: &str) -> Result<Answer, Self::Error>;
+    async fn retrieve(
+        &self,
+        question: &str,
+        options: &QueryOptions,
+    ) -> Result<Vec<RetrievalResult>, Self::Error>;
+    async fn ask(&self, question: &str, options: &QueryOptions) -> Result<Answer, Self::Error>;
 }

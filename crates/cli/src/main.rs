@@ -1,12 +1,14 @@
 use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
 use embed::OllamaEmbedder;
-use eval::Evaluator;
+use eval::{Evaluator, ExampleOutcome};
 use generate::OllamaGenerator;
 use ingest::manifest::DocMeta;
 use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
 use pipeline::NaivePipeline;
-use rag_core::{Chunk, Embedder as _, Generator as _, Pipeline as _, VectorStore as _};
+use rag_core::{
+    Chunk, Embedder as _, Generator as _, Pipeline as _, QueryOptions, VectorStore as _,
+};
 use std::path::Path;
 use std::path::PathBuf;
 use store::LanceStore;
@@ -123,7 +125,15 @@ async fn main() -> anyhow::Result<()> {
             let generator = OllamaGenerator::new();
             let pipeline = NaivePipeline::new(store, embedder, generator);
 
-            let answer = pipeline.ask(&question).await?;
+            let answer = pipeline
+                .ask(
+                    &question,
+                    &QueryOptions {
+                        top_k: 5,
+                        ..Default::default()
+                    },
+                )
+                .await?;
             println!("{}", answer.text);
         }
         Command::Eval => {
@@ -139,11 +149,13 @@ async fn main() -> anyhow::Result<()> {
             for wrong in evaluation
                 .evals
                 .iter()
-                .filter(|e| e.metrics.answer_contains == Some(false))
+                .filter(|e| e.outcome.metrics().and_then(|m| m.answer_contains) == Some(false))
             {
                 println!("Question: {}", wrong.example.question);
                 println!("Expected: {:?}", wrong.example.expected_answer_contains);
-                println!("Answer: {}", wrong.answer.text);
+                if let ExampleOutcome::Ok { answer, .. } = &wrong.outcome {
+                    println!("Answer: {}", answer.text);
+                }
             }
         }
     }

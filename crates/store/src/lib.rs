@@ -6,7 +6,7 @@ use arrow_schema::{DataType, Field, FieldRef, Schema};
 use futures::TryStreamExt as _;
 use lancedb::query::{ExecutableQuery as _, QueryBase as _};
 use lancedb::{DistanceType, Table, connect};
-use rag_core::{Chunk, EMBED_DIM, RetrievalResult, VectorStore};
+use rag_core::{Chunk, EMBED_DIM, QueryOptions, RetrievalResult, VectorStore};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
 use serde_arrow::{from_record_batch, to_record_batch};
 
@@ -164,7 +164,11 @@ impl VectorStore for LanceStore {
         Ok(())
     }
 
-    async fn query(&self, embedding: &[f32], k: usize) -> Result<Vec<RetrievalResult>, StoreError> {
+    async fn query(
+        &self,
+        embedding: &[f32],
+        options: &QueryOptions,
+    ) -> Result<Vec<RetrievalResult>, StoreError> {
         let results = self
             .table
             .query()
@@ -174,7 +178,7 @@ impl VectorStore for LanceStore {
                 source: e,
             })?
             .distance_type(DistanceType::Cosine)
-            .limit(k)
+            .limit(options.top_k)
             .execute()
             .await
             .map_err(|e| StoreError::Lance {
@@ -246,7 +250,16 @@ mod tests {
         ];
         store.insert(&chunks).await.unwrap();
 
-        let results = store.query(&unit_embedding(0), 10).await.unwrap();
+        let results = store
+            .query(
+                &unit_embedding(0),
+                &QueryOptions {
+                    top_k: 10,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
 
         assert_eq!(
             results.len(),
@@ -299,7 +312,16 @@ mod tests {
         }
 
         let store = LanceStore::connect(dir.path()).await.unwrap();
-        let results = store.query(&unit_embedding(0), 1).await.unwrap();
+        let results = store
+            .query(
+                &unit_embedding(0),
+                &QueryOptions {
+                    top_k: 1,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].chunk.id, "a");
     }

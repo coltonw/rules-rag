@@ -1,4 +1,4 @@
-use rag_core::{Answer, Pipeline};
+use rag_core::{Answer, Pipeline, QueryOptions};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::read_to_string,
@@ -8,7 +8,7 @@ use std::{
 #[derive(Serialize, Deserialize)]
 pub struct EvalExample {
     pub id: String,
-    pub game: String,
+    pub game: Option<String>,
     pub question: String,
     pub expected_answer_contains: Vec<String>,
     pub expected_pages: Vec<u32>,
@@ -29,12 +29,6 @@ pub enum EvalError {
         line: usize,
         #[source]
         source: serde_json::Error,
-    },
-    #[error("pipeline failed for example {id}")]
-    PipelineFailure {
-        id: String,
-        #[source]
-        source: Box<dyn std::error::Error + Send + Sync>,
     },
 }
 
@@ -57,20 +51,30 @@ pub fn get_golden_set(path: &Path) -> Result<Vec<EvalExample>, EvalError> {
     Ok(examples)
 }
 
-pub fn does_answer_contain(example: &EvalExample, answer: &str) -> bool {
-    for answer_should_contain in &example.expected_answer_contains {
-        if !answer
-            .to_ascii_lowercase()
-            .trim()
-            .contains(answer_should_contain.to_ascii_lowercase().trim())
-        {
-            return false;
-        }
+pub fn does_answer_contain(example: &EvalExample, answer: &str) -> Option<bool> {
+    if example.expected_answer_contains.is_empty() {
+        return None;
     }
-    true
+    let answer_lower = answer.to_ascii_lowercase();
+    Some(
+        example
+            .expected_answer_contains
+            .iter()
+            .all(|s| answer_lower.contains(&s.to_ascii_lowercase())),
+    )
 }
 
-#[derive(Serialize)]
+fn flatten_error_chain(e: &(dyn std::error::Error + 'static)) -> Vec<String> {
+    let mut chain = vec![e.to_string()];
+    let mut current = e.source();
+    while let Some(src) = current {
+        chain.push(src.to_string());
+        current = src.source();
+    }
+    chain
+}
+
+#[derive(Serialize, Default)]
 pub struct ExampleMetrics {
     pub answer_contains: Option<bool>,
     pub recall_at_k: Option<f32>, // future
@@ -80,8 +84,28 @@ pub struct ExampleMetrics {
 #[derive(Serialize)]
 pub struct SingleEval {
     pub example: EvalExample,
-    pub answer: Answer,
-    pub metrics: ExampleMetrics,
+    pub outcome: ExampleOutcome,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ExampleOutcome {
+    Ok {
+        answer: Answer,
+        metrics: ExampleMetrics,
+    },
+    Errored {
+        error: Vec<String>,
+    },
+}
+
+impl ExampleOutcome {
+    pub fn metrics(&self) -> Option<&ExampleMetrics> {
+        match self {
+            Self::Ok { metrics, .. } => Some(metrics),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -104,35 +128,49 @@ impl<P: Pipeline> Evaluator<P> {
         let mut evals: Vec<SingleEval> = Vec::new();
 
         for example in examples {
-            let answer = self.pipeline.ask(&example.question).await.map_err(|e| {
-                EvalError::PipelineFailure {
-                    id: example.id.clone(),
-                    source: Box::new(e),
+            let outcome = match self
+                .pipeline
+                .ask(
+                    &example.question,
+                    &QueryOptions {
+                        top_k: 5,
+                        game_filter: example.game.clone(),
+                    },
+                )
+                .await
+            {
+                Ok(answer) => {
+                    let ac = does_answer_contain(&example, &answer.text);
+                    let metrics = ExampleMetrics {
+                        answer_contains: ac,
+                        ..Default::default()
+                    };
+                    tracing::info!(id = %example.id, answer_contains = ?ac, "ok");
+                    ExampleOutcome::Ok { answer, metrics }
                 }
-            })?;
-            let answer_contains = does_answer_contain(&example, &answer.text);
+                Err(e) => {
+                    tracing::warn!(id = %example.id, error = %e, "errored");
+                    ExampleOutcome::Errored {
+                        error: flatten_error_chain(&e),
+                    }
+                }
+            };
 
-            evals.push(SingleEval {
-                example,
-                answer,
-                metrics: ExampleMetrics {
-                    answer_contains: Some(answer_contains),
-                    recall_at_k: None,
-                    mrr: None,
-                },
-            });
+            evals.push(SingleEval { example, outcome });
         }
 
-        let total = evals
+        let scored: Vec<bool> = evals
             .iter()
-            .filter(|e| e.metrics.answer_contains.is_some())
-            .count();
-        let passed = evals
-            .iter()
-            .filter(|e| e.metrics.answer_contains == Some(true))
-            .count();
+            .filter_map(|e| e.outcome.metrics()?.answer_contains)
+            .collect();
+        let total = scored.len();
+        let passed = scored.iter().filter(|&&p| p).count();
 
-        let ratio = passed as f32 / (total as f32).max(1.0);
+        let ratio = if total == 0 {
+            0.0
+        } else {
+            passed as f32 / total as f32
+        };
         Ok(Evaluation { evals, ratio })
     }
 }
@@ -150,12 +188,20 @@ mod tests {
 
         let q = golden_qs.first().unwrap();
         assert_eq!(q.id, "pandemic-001", "game id should be loaded properly");
-        assert_eq!(q.game, "Pandemic", "game should be loaded properly");
+        assert_eq!(
+            q.game,
+            Some("Pandemic".to_string()),
+            "game should be loaded properly"
+        );
         let q = golden_qs.get(1).unwrap();
         assert_eq!(
             q.id, "pandemic-002",
             "second game id should be loaded properly"
         );
-        assert_eq!(q.game, "Pandemic", "second game should be loaded properly");
+        assert_eq!(
+            q.game,
+            Some("Pandemic".to_string()),
+            "second game should be loaded properly"
+        );
     }
 }
