@@ -1,11 +1,11 @@
 [package]
-name = "pipeline"
+name = "retrieve"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-generate = { path = "../generate" }
+embed = { path = "../embed" }
 rag-core = { path = "../rag-core" }
-retrieve = { path = "../retrieve" }
+store = { path = "../store" }
 thiserror = "2.0.18"
 tracing = "0.1.44"

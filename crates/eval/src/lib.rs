@@ -1,9 +1,11 @@
-use rag_core::{Answer, Pipeline, QueryOptions, RetrievalResult};
+use rag_core::{Answer, Pipeline, QueryOptions, RetrievalResult, Retriever};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::read_to_string,
     path::{Path, PathBuf},
 };
+
+// Anything with heavy comments was made or at least modified by an LLM. Actually kind of a nice marker for what I did vs what I didn't do.
 
 /// Default phrases that mark a refused / hedged answer. Checked against
 /// every answer in addition to per-example `forbidden_phrases`.
@@ -14,6 +16,23 @@ pub const DEFAULT_REFUSAL_PHRASES: &[&str] = &[
     "no chunk supports",
     "not specified",
 ];
+
+#[derive(Debug, thiserror::Error)]
+pub enum EvalError {
+    #[error("failed to read eval file at {path}")]
+    ReadFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to parse eval file at {path} on line {line}")]
+    ParseFile {
+        path: PathBuf,
+        line: usize,
+        #[source]
+        source: serde_json::Error,
+    },
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct EvalExample {
@@ -41,21 +60,218 @@ pub struct EvalExample {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, thiserror::Error)]
-pub enum EvalError {
-    #[error("failed to read eval file at {path}")]
-    ReadFile {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
+#[derive(Serialize)]
+pub struct PipelineEvaluation {
+    pub evals: Vec<PipelineEval>,
+    pub chunk_ratio: f32,
+    pub quote_ratio: f32,
+    pub refusal_ratio: f32,
+}
+
+#[derive(Serialize)]
+pub struct PipelineEval {
+    pub example: EvalExample,
+    pub outcome: PipelineOutcome,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PipelineOutcome {
+    Ok {
+        answer: Answer,
+        retrieval_metrics: RetrievalMetrics,
+        generation_metrics: GenerationMetrics,
     },
-    #[error("failed to parse eval file at {path} on line {line}")]
-    ParseFile {
-        path: PathBuf,
-        line: usize,
-        #[source]
-        source: serde_json::Error,
+    Errored {
+        error: Vec<String>,
     },
+}
+
+#[derive(Serialize, Default)]
+pub struct RetrievalMetrics {
+    pub chunk_match: bool,
+}
+
+#[derive(Serialize, Default)]
+pub struct GenerationMetrics {
+    pub quote_match: bool,
+    pub refused: bool,
+}
+
+impl PipelineOutcome {
+    pub fn metrics<'s>(&'s self) -> Option<MetricsRef<'s>> {
+        match self {
+            Self::Ok {
+                retrieval_metrics,
+                generation_metrics,
+                ..
+            } => Some(MetricsRef {
+                retr_metrics: retrieval_metrics,
+                gen_metrics: generation_metrics,
+            }),
+            _ => None,
+        }
+    }
+}
+
+pub struct MetricsRef<'a> {
+    pub retr_metrics: &'a RetrievalMetrics,
+    pub gen_metrics: &'a GenerationMetrics,
+}
+
+#[derive(Serialize)]
+pub struct RetrievalEvaluation {
+    pub evals: Vec<RetrievalEval>,
+    pub chunk_ratio: f32,
+}
+
+#[derive(Serialize)]
+pub struct RetrievalEval {
+    pub example: EvalExample,
+    pub outcome: RetrievalOutcome,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RetrievalOutcome {
+    Ok { metrics: RetrievalMetrics },
+    Errored { error: Vec<String> },
+}
+
+impl RetrievalOutcome {
+    pub fn metrics(&self) -> Option<&RetrievalMetrics> {
+        match self {
+            Self::Ok { metrics, .. } => Some(metrics),
+            _ => None,
+        }
+    }
+}
+
+pub struct PipelineEvaluator<P: Pipeline> {
+    pipeline: P,
+}
+
+impl<P: Pipeline> PipelineEvaluator<P> {
+    pub fn new(pipeline: P) -> Self {
+        Self { pipeline }
+    }
+
+    pub async fn run(&self) -> Result<PipelineEvaluation, EvalError> {
+        let examples = get_golden_set(Path::new("./data/eval/golden.jsonl"))?;
+        let mut evals: Vec<PipelineEval> = Vec::new();
+
+        for example in examples {
+            let outcome = match self
+                .pipeline
+                .ask(
+                    &example.question,
+                    &QueryOptions {
+                        top_k: 5,
+                        game_filter: example.game.clone(),
+                    },
+                )
+                .await
+            {
+                Ok(answer) => {
+                    let chunk_match = check_expected_chunk_contains(&example, &answer.retrieval);
+                    let quote_match = check_expected_quote(&example, &answer.text);
+                    let refused = check_refused(&example, &answer.text);
+                    let retrieval_metrics = RetrievalMetrics { chunk_match };
+                    let generation_metrics = GenerationMetrics {
+                        quote_match,
+                        refused,
+                    };
+                    tracing::info!(id = %example.id, quote_match, chunk_match, refused, "ok");
+                    PipelineOutcome::Ok {
+                        answer,
+                        retrieval_metrics,
+                        generation_metrics,
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(id = %example.id, error = %e, "errored");
+                    PipelineOutcome::Errored {
+                        error: flatten_error_chain(&e),
+                    }
+                }
+            };
+
+            evals.push(PipelineEval { example, outcome });
+        }
+
+        let metrics: Vec<MetricsRef> = evals.iter().filter_map(|e| e.outcome.metrics()).collect();
+        let total = metrics.len();
+        let chunk_passed = metrics
+            .iter()
+            .filter(|m| m.retr_metrics.chunk_match)
+            .count();
+        let quote_passed = metrics.iter().filter(|m| m.gen_metrics.quote_match).count();
+        let refused_count = metrics.iter().filter(|m| m.gen_metrics.refused).count();
+
+        let chunk_ratio = ratio(chunk_passed, total);
+        let quote_ratio = ratio(quote_passed, total);
+        let refusal_ratio = ratio(refused_count, total);
+
+        Ok(PipelineEvaluation {
+            evals,
+            chunk_ratio,
+            quote_ratio,
+            refusal_ratio,
+        })
+    }
+}
+
+pub struct RetrievalEvaluator<R: Retriever> {
+    retriever: R,
+}
+
+impl<R: Retriever> RetrievalEvaluator<R> {
+    pub fn new(retriever: R) -> Self {
+        Self { retriever }
+    }
+
+    pub async fn run(&self) -> Result<RetrievalEvaluation, EvalError> {
+        let examples = get_golden_set(Path::new("./data/eval/golden.jsonl"))?;
+        let mut evals: Vec<RetrievalEval> = Vec::new();
+
+        for example in examples {
+            let outcome = match self
+                .retriever
+                .retrieve(
+                    &example.question,
+                    &QueryOptions {
+                        top_k: 5,
+                        game_filter: example.game.clone(),
+                    },
+                )
+                .await
+            {
+                Ok(retrieval) => {
+                    let chunk_match = check_expected_chunk_contains(&example, &retrieval);
+                    let metrics = RetrievalMetrics { chunk_match };
+                    tracing::info!(id = %example.id, chunk_match, "ok");
+                    RetrievalOutcome::Ok { metrics }
+                }
+                Err(e) => {
+                    tracing::warn!(id = %example.id, error = %e, "errored");
+                    RetrievalOutcome::Errored {
+                        error: flatten_error_chain(&e),
+                    }
+                }
+            };
+
+            evals.push(RetrievalEval { example, outcome });
+        }
+
+        let metrics: Vec<&RetrievalMetrics> =
+            evals.iter().filter_map(|e| e.outcome.metrics()).collect();
+        let total = metrics.len();
+        let chunk_passed = metrics.iter().filter(|m| m.chunk_match).count();
+
+        let chunk_ratio = ratio(chunk_passed, total);
+
+        Ok(RetrievalEvaluation { evals, chunk_ratio })
+    }
 }
 
 pub fn get_golden_set(path: &Path) -> Result<Vec<EvalExample>, EvalError> {
@@ -143,17 +359,12 @@ pub fn check_refused(example: &EvalExample, answer: &str) -> bool {
 
 /// Did any retrieved chunk contain at least one of the expected substrings?
 /// If `expected_chunk_contains` is empty, returns true (no expectations).
-pub fn check_expected_chunk_contains(
-    example: &EvalExample,
-    retrieval: &[RetrievalResult],
-) -> bool {
+pub fn check_expected_chunk_contains(example: &EvalExample, retrieval: &[RetrievalResult]) -> bool {
     if example.expected_chunk_contains.is_empty() {
         return true;
     }
-    let normalized_chunks: Vec<String> = retrieval
-        .iter()
-        .map(|r| normalize(&r.chunk.text))
-        .collect();
+    let normalized_chunks: Vec<String> =
+        retrieval.iter().map(|r| normalize(&r.chunk.text)).collect();
     example.expected_chunk_contains.iter().any(|needle| {
         let normalized_needle = normalize(needle);
         normalized_chunks
@@ -172,126 +383,11 @@ fn flatten_error_chain(e: &(dyn std::error::Error + 'static)) -> Vec<String> {
     chain
 }
 
-#[derive(Serialize, Default)]
-pub struct ExampleMetrics {
-    pub quote_match: bool,
-    pub chunk_match: bool,
-    pub refused: bool,
-}
-
-#[derive(Serialize)]
-pub struct SingleEval {
-    pub example: EvalExample,
-    pub outcome: ExampleOutcome,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum ExampleOutcome {
-    Ok {
-        answer: Answer,
-        metrics: ExampleMetrics,
-    },
-    Errored {
-        error: Vec<String>,
-    },
-}
-
-impl ExampleOutcome {
-    pub fn metrics(&self) -> Option<&ExampleMetrics> {
-        match self {
-            Self::Ok { metrics, .. } => Some(metrics),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Serialize)]
-pub struct Evaluation {
-    pub evals: Vec<SingleEval>,
-    pub quote_ratio: f32,
-    pub chunk_ratio: f32,
-    pub refusal_ratio: f32,
-}
-
-pub struct Evaluator<P: Pipeline> {
-    pipeline: P,
-}
-
-impl<P: Pipeline> Evaluator<P> {
-    pub fn new(pipeline: P) -> Self {
-        Self { pipeline }
-    }
-
-    pub async fn run(&self) -> Result<Evaluation, EvalError> {
-        let examples = get_golden_set(Path::new("./data/eval/golden.jsonl"))?;
-        let mut evals: Vec<SingleEval> = Vec::new();
-
-        for example in examples {
-            let outcome = match self
-                .pipeline
-                .ask(
-                    &example.question,
-                    &QueryOptions {
-                        top_k: 5,
-                        game_filter: example.game.clone(),
-                    },
-                )
-                .await
-            {
-                Ok(answer) => {
-                    let quote_match = check_expected_quote(&example, &answer.text);
-                    let chunk_match =
-                        check_expected_chunk_contains(&example, &answer.retrieval);
-                    let refused = check_refused(&example, &answer.text);
-                    let metrics = ExampleMetrics {
-                        quote_match,
-                        chunk_match,
-                        refused,
-                    };
-                    tracing::info!(id = %example.id, quote_match, chunk_match, refused, "ok");
-                    ExampleOutcome::Ok { answer, metrics }
-                }
-                Err(e) => {
-                    tracing::warn!(id = %example.id, error = %e, "errored");
-                    ExampleOutcome::Errored {
-                        error: flatten_error_chain(&e),
-                    }
-                }
-            };
-
-            evals.push(SingleEval { example, outcome });
-        }
-
-        let metrics: Vec<&ExampleMetrics> =
-            evals.iter().filter_map(|e| e.outcome.metrics()).collect();
-        let total = metrics.len();
-        let quote_passed = metrics.iter().filter(|m| m.quote_match).count();
-        let chunk_passed = metrics.iter().filter(|m| m.chunk_match).count();
-        let refused_count = metrics.iter().filter(|m| m.refused).count();
-
-        let quote_ratio = if total == 0 {
-            0.0
-        } else {
-            quote_passed as f32 / total as f32
-        };
-        let chunk_ratio = if total == 0 {
-            0.0
-        } else {
-            chunk_passed as f32 / total as f32
-        };
-        let refusal_ratio = if total == 0 {
-            0.0
-        } else {
-            refused_count as f32 / total as f32
-        };
-
-        Ok(Evaluation {
-            evals,
-            quote_ratio,
-            chunk_ratio,
-            refusal_ratio,
-        })
+fn ratio(numerator: usize, denominator: usize) -> f32 {
+    if denominator == 0 {
+        0.0
+    } else {
+        numerator as f32 / denominator as f32
     }
 }
 

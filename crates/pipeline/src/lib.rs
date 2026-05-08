@@ -1,30 +1,25 @@
 #![allow(async_fn_in_trait)]
-use embed::OllamaEmbedder;
 use generate::OllamaGenerator;
-use rag_core::{Answer, Embedder, Generator, Pipeline, QueryOptions, RetrievalResult, VectorStore};
-use store::LanceStore;
+use rag_core::{Answer, Generator, Pipeline, QueryOptions, RetrievalResult, Retriever as _};
+use retrieve::FixedChunkRetriever;
 
 #[derive(thiserror::Error, Debug)]
 pub enum PipelineError {
-    #[error("embedding failed")]
-    Embed(#[from] embed::EmbedError),
     #[error("retrieval failed")]
-    Store(#[from] store::StoreError),
+    Embed(#[from] retrieve::RetrieveError),
     #[error("generation failed")]
     Generate(#[from] generate::GenerateError),
 }
 
 pub struct NaivePipeline {
-    store: LanceStore,
-    embedder: OllamaEmbedder,
+    retriever: FixedChunkRetriever,
     generator: OllamaGenerator,
 }
 
 impl NaivePipeline {
-    pub fn new(store: LanceStore, embedder: OllamaEmbedder, generator: OllamaGenerator) -> Self {
+    pub fn new(retriever: FixedChunkRetriever, generator: OllamaGenerator) -> Self {
         Self {
-            store,
-            embedder,
+            retriever,
             generator,
         }
     }
@@ -37,10 +32,7 @@ impl Pipeline for NaivePipeline {
         question: &str,
         options: &QueryOptions,
     ) -> Result<Vec<RetrievalResult>, PipelineError> {
-        let results = self
-            .store
-            .query(&self.embedder.generate_one(question).await?, options)
-            .await?;
+        let results = self.retriever.retrieve(question, options).await?;
 
         Ok(results)
     }

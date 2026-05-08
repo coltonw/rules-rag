@@ -76,6 +76,15 @@ pub trait Generator: Sized {
     ) -> Result<String, Self::Error>;
 }
 
+pub trait Retriever {
+    type Error: std::error::Error + Send + Sync + 'static;
+    async fn retrieve(
+        &self,
+        question: &str,
+        options: &QueryOptions,
+    ) -> Result<Vec<RetrievalResult>, Self::Error>;
+}
+
 pub trait Pipeline {
     type Error: std::error::Error + Send + Sync + 'static;
     async fn retrieve(

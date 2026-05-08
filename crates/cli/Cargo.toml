@@ -12,6 +12,7 @@ generate = { path = "../generate" }
 ingest = { path = "../ingest" }
 pipeline = { path = "../pipeline" }
 rag-core = { path = "../rag-core" }
+retrieve = { path = "../retrieve" }
 store = { path = "../store" }
 tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

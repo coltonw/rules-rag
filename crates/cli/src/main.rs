@@ -1,7 +1,10 @@
 use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
 use embed::OllamaEmbedder;
-use eval::{Evaluator, ExampleMetrics, ExampleOutcome};
+use eval::{
+    GenerationMetrics, PipelineEvaluator, PipelineOutcome, RetrievalEvaluator, RetrievalMetrics,
+    RetrievalOutcome,
+};
 use generate::OllamaGenerator;
 use ingest::manifest::DocMeta;
 use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
@@ -9,6 +12,7 @@ use pipeline::NaivePipeline;
 use rag_core::{
     Chunk, Embedder as _, Generator as _, Pipeline as _, QueryOptions, VectorStore as _,
 };
+use retrieve::FixedChunkRetriever;
 use std::path::Path;
 use std::path::PathBuf;
 use store::LanceStore;
@@ -38,7 +42,10 @@ enum Command {
     /// Ask the chatbot a rules question.
     Ask { question: String },
     /// Run the chatbot eval.
-    Eval,
+    Eval {
+        #[arg(short, long)]
+        retrieval_only: bool,
+    },
 }
 
 #[tokio::main]
@@ -122,8 +129,9 @@ async fn main() -> anyhow::Result<()> {
             println!("{} rulebooks ingested", to_ingest.len());
         }
         Command::Ask { question } => {
+            let retriever = FixedChunkRetriever::new(store, embedder);
             let generator = OllamaGenerator::new();
-            let pipeline = NaivePipeline::new(store, embedder, generator);
+            let pipeline = NaivePipeline::new(retriever, generator);
 
             let answer = pipeline
                 .ask(
@@ -136,55 +144,90 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
             println!("{}", answer.text);
         }
-        Command::Eval => {
-            let generator = OllamaGenerator::new();
-            let pipeline = NaivePipeline::new(store, embedder, generator);
-
-            let evaluator = Evaluator::new(pipeline);
-            let evaluation = evaluator.run().await?;
-            println!("Quote match:  {:.1}%", evaluation.quote_ratio * 100.0);
-            println!("Chunk match:  {:.1}%", evaluation.chunk_ratio * 100.0);
-            println!("Refusal rate: {:.1}%", evaluation.refusal_ratio * 100.0);
-            let any_failures = evaluation.quote_ratio < 1.0
-                || evaluation.chunk_ratio < 1.0
-                || evaluation.refusal_ratio > 0.0;
-            if any_failures {
-                println!("\nWrong answers:\n")
-            }
-            for wrong in evaluation.evals.iter().filter(|e| {
-                e.outcome
-                    .metrics()
-                    .is_some_and(|m| !m.quote_match || !m.chunk_match || m.refused)
-            }) {
-                println!("Question:\n{}", wrong.example.question);
-                if let ExampleOutcome::Ok {
-                    metrics:
-                        ExampleMetrics {
-                            quote_match,
-                            chunk_match,
-                            refused,
-                        },
-                    answer,
-                } = &wrong.outcome
+        Command::Eval { retrieval_only } => {
+            let retriever = FixedChunkRetriever::new(store, embedder);
+            if retrieval_only {
+                let evaluator = RetrievalEvaluator::new(retriever);
+                let evaluation = evaluator.run().await?;
+                println!("Chunk match:  {:.1}%", evaluation.chunk_ratio * 100.0);
+                if evaluation.chunk_ratio < 1.0 {
+                    println!("\nWrong answers:\n")
+                }
+                for wrong in evaluation
+                    .evals
+                    .iter()
+                    .filter(|e| e.outcome.metrics().is_some_and(|m| !m.chunk_match))
                 {
-                    if *refused {
-                        println!("Refusal");
-                    } else if !chunk_match {
-                        println!("Chunk failure");
-                        println!("Expected chunk(s):");
-                        for c in &wrong.example.expected_chunk_contains {
-                            println!("  - {}", c);
-                        }
-                    } else if !quote_match {
-                        println!("Quote failure");
-                        println!("Expected quote(s):");
-                        for q in &wrong.example.expected_quote {
-                            println!("  - {}", q);
+                    println!("Question:\n{}", wrong.example.question);
+                    // This pattern match is unecessary because you can only get here if chunk_match was false, but very soon
+                    // we will be adding more retrieval metrics and this already being set up will make that much easier
+                    #[allow(clippy::collapsible_if)]
+                    if let RetrievalOutcome::Ok {
+                        metrics: RetrievalMetrics { chunk_match },
+                    } = &wrong.outcome
+                    {
+                        if !chunk_match {
+                            println!("Chunk failure");
+                            println!("Expected chunk(s):");
+                            for c in &wrong.example.expected_chunk_contains {
+                                println!("  - {}", c);
+                            }
                         }
                     }
-                    println!("Answer:\n{}", answer.text);
+                    println!();
                 }
-                println!();
+            } else {
+                let generator = OllamaGenerator::new();
+                let pipeline = NaivePipeline::new(retriever, generator);
+
+                let evaluator = PipelineEvaluator::new(pipeline);
+                let evaluation = evaluator.run().await?;
+                println!("Quote match:  {:.1}%", evaluation.quote_ratio * 100.0);
+                println!("Chunk match:  {:.1}%", evaluation.chunk_ratio * 100.0);
+                println!("Refusal rate: {:.1}%", evaluation.refusal_ratio * 100.0);
+                let any_failures = evaluation.quote_ratio < 1.0
+                    || evaluation.chunk_ratio < 1.0
+                    || evaluation.refusal_ratio > 0.0;
+                if any_failures {
+                    println!("\nWrong answers:\n")
+                }
+                for wrong in evaluation.evals.iter().filter(|e| {
+                    e.outcome.metrics().is_some_and(|m| {
+                        !m.retr_metrics.chunk_match
+                            || !m.gen_metrics.quote_match
+                            || m.gen_metrics.refused
+                    })
+                }) {
+                    println!("Question:\n{}", wrong.example.question);
+                    if let PipelineOutcome::Ok {
+                        retrieval_metrics: RetrievalMetrics { chunk_match },
+                        generation_metrics:
+                            GenerationMetrics {
+                                quote_match,
+                                refused,
+                            },
+                        answer,
+                    } = &wrong.outcome
+                    {
+                        if !chunk_match {
+                            println!("Chunk failure");
+                            println!("Expected chunk(s):");
+                            for c in &wrong.example.expected_chunk_contains {
+                                println!("  - {}", c);
+                            }
+                        } else if *refused {
+                            println!("Refusal");
+                        } else if !quote_match {
+                            println!("Quote failure");
+                            println!("Expected quote(s):");
+                            for q in &wrong.example.expected_quote {
+                                println!("  - {}", q);
+                            }
+                        }
+                        println!("Answer:\n{}", answer.text);
+                    }
+                    println!();
+                }
             }
         }
     }
