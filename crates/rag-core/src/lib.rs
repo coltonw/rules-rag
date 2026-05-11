@@ -50,7 +50,7 @@ pub struct QueryOptions {
 
 pub trait VectorStore: Sized {
     type Error: std::error::Error + Send + Sync + 'static;
-    async fn connect(path: &Path) -> Result<Self, Self::Error>;
+    async fn connect(path: &Path, table_name: &str) -> Result<Self, Self::Error>;
     async fn insert(&self, chunks: &[Chunk]) -> Result<(), Self::Error>;
     async fn query(
         &self,

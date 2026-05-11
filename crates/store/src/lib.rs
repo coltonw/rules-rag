@@ -108,7 +108,7 @@ impl LanceStore {
 impl VectorStore for LanceStore {
     type Error = StoreError;
 
-    async fn connect(path: &Path) -> Result<Self, StoreError> {
+    async fn connect(path: &Path, table_name: &str) -> Result<Self, StoreError> {
         let connection = connect(path.to_str().expect("DB path must be UTF-8"))
             .execute()
             .await
@@ -118,7 +118,6 @@ impl VectorStore for LanceStore {
             })?;
         let schema = Self::schema();
 
-        let table_name = "rules_chunks";
         let table = match connection.open_table(table_name).execute().await {
             Ok(table) => table,
             Err(lancedb::Error::TableNotFound { .. }) => connection
@@ -215,7 +214,7 @@ mod tests {
     #[tokio::test]
     async fn roundtrip_through_lancedb() {
         let dir = TempDir::new().unwrap();
-        let store = LanceStore::connect(dir.path()).await.unwrap();
+        let store = LanceStore::connect(dir.path(), "test").await.unwrap();
 
         let chunks = vec![
             Chunk {
@@ -300,7 +299,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
 
         {
-            let store = LanceStore::connect(dir.path()).await.unwrap();
+            let store = LanceStore::connect(dir.path(), "test").await.unwrap();
             store
                 .insert(&[Chunk {
                     id: "a".into(),
@@ -314,7 +313,7 @@ mod tests {
                 .unwrap();
         }
 
-        let store = LanceStore::connect(dir.path()).await.unwrap();
+        let store = LanceStore::connect(dir.path(), "test").await.unwrap();
         let results = store
             .query(
                 &unit_embedding(0),
@@ -332,7 +331,7 @@ mod tests {
     #[tokio::test]
     async fn game_filter_restricts_results() {
         let dir = TempDir::new().unwrap();
-        let store = LanceStore::connect(dir.path()).await.unwrap();
+        let store = LanceStore::connect(dir.path(), "test").await.unwrap();
 
         let chunks = vec![
             Chunk {

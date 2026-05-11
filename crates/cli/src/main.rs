@@ -2,7 +2,7 @@ use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
 use embed::OllamaEmbedder;
 use eval::{
-    GenerationMetrics, PipelineEvaluator, PipelineOutcome, RetrievalEvaluator, RetrievalMetrics,
+    FullOutcome, GenerationMetrics, PipelineEvaluator, RetrievalEvaluator, RetrievalMetrics,
     RetrievalOutcome,
 };
 use generate::OllamaGenerator;
@@ -24,6 +24,12 @@ use store::LanceStore;
 struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     verbose: u8,
+
+    #[arg(short('f'), long, global = true)]
+    chunks_fixed_512_24: bool,
+
+    #[arg(short('p'), long, global = true)]
+    chunks_paragraph: bool,
 
     #[command(subcommand)]
     command: Command,
@@ -61,8 +67,15 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_level));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
+    let table_name = if cli.chunks_paragraph {
+        "chunks_paragraph"
+    } else {
+        // default (since it is the only one for now)
+        "chunks_fixed_512_24"
+    };
+
     let embedder = OllamaEmbedder::new();
-    let store = LanceStore::connect(Path::new("./data/lancedb")).await?;
+    let store = LanceStore::connect(Path::new("./data/lancedb"), table_name).await?;
 
     match cli.command {
         Command::Ingest { paths, game } => {
@@ -149,28 +162,68 @@ async fn main() -> anyhow::Result<()> {
             if retrieval_only {
                 let evaluator = RetrievalEvaluator::new(retriever);
                 let evaluation = evaluator.run().await?;
-                println!("Chunk match:  {:.1}%", evaluation.chunk_ratio * 100.0);
-                if evaluation.chunk_ratio < 1.0 {
-                    println!("\nWrong answers:\n")
+                println!(
+                    "Recall@1 match:  {:.1}%",
+                    evaluation.ratios.recall_at_1 * 100.0
+                );
+                println!(
+                    "Recall@3 match:  {:.1}%",
+                    evaluation.ratios.recall_at_3 * 100.0
+                );
+                println!(
+                    "Recall@5 match:  {:.1}%",
+                    evaluation.ratios.recall_at_5 * 100.0
+                );
+                println!(
+                    "Recall@10 match:  {:.1}%",
+                    evaluation.ratios.recall_at_10 * 100.0
+                );
+                println!("MRR mean:  {:.3}%", evaluation.ratios.mrr_mean);
+                if evaluation.ratios.recall_at_1 < 1.0 {
+                    println!("\nMissed Recall@1:\n")
                 }
                 for wrong in evaluation
                     .evals
                     .iter()
-                    .filter(|e| e.outcome.metrics().is_some_and(|m| !m.chunk_match))
+                    .filter(|e| e.outcome.metrics().is_some_and(|m| !m.recall_at_1))
                 {
                     println!("Question:\n{}", wrong.example.question);
                     // This pattern match is unecessary because you can only get here if chunk_match was false, but very soon
                     // we will be adding more retrieval metrics and this already being set up will make that much easier
                     #[allow(clippy::collapsible_if)]
                     if let RetrievalOutcome::Ok {
-                        metrics: RetrievalMetrics { chunk_match },
+                        retrieval,
+                        metrics:
+                            RetrievalMetrics {
+                                recall_at_3,
+                                recall_at_5,
+                                recall_at_10,
+                                found_at,
+                                ..
+                            },
                     } = &wrong.outcome
                     {
-                        if !chunk_match {
-                            println!("Chunk failure");
-                            println!("Expected chunk(s):");
-                            for c in &wrong.example.expected_chunk_contains {
-                                println!("  - {}", c);
+                        if !recall_at_10 {
+                            println!("Chunk(s) failed Recall@10");
+                        } else if !recall_at_5 {
+                            println!("Chunk(s) passed Recall@10 but failed Recall@5");
+                        } else if !recall_at_3 {
+                            println!("Chunk(s) passed Recall@5 but failed Recall@3");
+                        } else {
+                            println!("Chunk(s) passed Recall@3 but failed Recall@1");
+                        }
+                        println!("Expected chunk(s):");
+                        for c in &wrong.example.expected_chunk_contains {
+                            println!("  - {}", c);
+                        }
+                        if cli.verbose > 0 {
+                            println!("Actual failed chunks:\n");
+                            for rr in retrieval.iter().take(*found_at - 1) {
+                                println!(
+                                    "Failed chunk {}:\n{}\n",
+                                    rr.chunk.id,
+                                    rr.chunk.text.replace("\n\n", "\n").trim()
+                                );
                             }
                         }
                     }
@@ -182,25 +235,47 @@ async fn main() -> anyhow::Result<()> {
 
                 let evaluator = PipelineEvaluator::new(pipeline);
                 let evaluation = evaluator.run().await?;
-                println!("Quote match:  {:.1}%", evaluation.quote_ratio * 100.0);
-                println!("Chunk match:  {:.1}%", evaluation.chunk_ratio * 100.0);
-                println!("Refusal rate: {:.1}%", evaluation.refusal_ratio * 100.0);
-                let any_failures = evaluation.quote_ratio < 1.0
-                    || evaluation.chunk_ratio < 1.0
-                    || evaluation.refusal_ratio > 0.0;
+                println!(
+                    "Recall@1 match:  {:.1}%",
+                    evaluation.retrieval_ratios.recall_at_1 * 100.0
+                );
+                println!(
+                    "Recall@3 match:  {:.1}%",
+                    evaluation.retrieval_ratios.recall_at_3 * 100.0
+                );
+                println!(
+                    "Recall@5 match:  {:.1}%",
+                    evaluation.retrieval_ratios.recall_at_5 * 100.0
+                );
+                println!(
+                    "Quote match:  {:.1}%",
+                    evaluation.generation_ratios.quote * 100.0
+                );
+                println!(
+                    "Refusal rate: {:.1}%",
+                    evaluation.generation_ratios.refusal * 100.0
+                );
+                let any_failures = evaluation.retrieval_ratios.recall_at_1 < 1.0
+                    || evaluation.generation_ratios.quote < 1.0
+                    || evaluation.generation_ratios.refusal > 0.0;
                 if any_failures {
                     println!("\nWrong answers:\n")
                 }
                 for wrong in evaluation.evals.iter().filter(|e| {
                     e.outcome.metrics().is_some_and(|m| {
-                        !m.retr_metrics.chunk_match
+                        !m.retr_metrics.recall_at_1
                             || !m.gen_metrics.quote_match
                             || m.gen_metrics.refused
                     })
                 }) {
                     println!("Question:\n{}", wrong.example.question);
-                    if let PipelineOutcome::Ok {
-                        retrieval_metrics: RetrievalMetrics { chunk_match },
+                    if let FullOutcome::Ok {
+                        retrieval_metrics:
+                            RetrievalMetrics {
+                                recall_at_3,
+                                recall_at_5,
+                                ..
+                            },
                         generation_metrics:
                             GenerationMetrics {
                                 quote_match,
@@ -209,8 +284,8 @@ async fn main() -> anyhow::Result<()> {
                         answer,
                     } = &wrong.outcome
                     {
-                        if !chunk_match {
-                            println!("Chunk failure");
+                        if !recall_at_5 {
+                            println!("Chunk not found");
                             println!("Expected chunk(s):");
                             for c in &wrong.example.expected_chunk_contains {
                                 println!("  - {}", c);
@@ -222,6 +297,16 @@ async fn main() -> anyhow::Result<()> {
                             println!("Expected quote(s):");
                             for q in &wrong.example.expected_quote {
                                 println!("  - {}", q);
+                            }
+                        } else {
+                            if !recall_at_3 {
+                                println!("Recall@3 failed");
+                            } else {
+                                println!("Recall@1 failed");
+                            }
+                            println!("Expected chunk(s):");
+                            for c in &wrong.example.expected_chunk_contains {
+                                println!("  - {}", c);
                             }
                         }
                         println!("Answer:\n{}", answer.text);

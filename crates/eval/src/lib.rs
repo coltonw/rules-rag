@@ -61,22 +61,36 @@ pub struct EvalExample {
 }
 
 #[derive(Serialize)]
-pub struct PipelineEvaluation {
-    pub evals: Vec<PipelineEval>,
-    pub chunk_ratio: f32,
-    pub quote_ratio: f32,
-    pub refusal_ratio: f32,
+pub struct FullEvaluation {
+    pub evals: Vec<FullEval>,
+    pub retrieval_ratios: RetrievalRatios,
+    pub generation_ratios: GenerationRatios,
 }
 
 #[derive(Serialize)]
-pub struct PipelineEval {
+pub struct RetrievalRatios {
+    pub recall_at_1: f32,
+    pub recall_at_3: f32,
+    pub recall_at_5: f32,
+    pub recall_at_10: f32,
+    pub mrr_mean: f32,
+}
+
+#[derive(Serialize)]
+pub struct GenerationRatios {
+    pub quote: f32,
+    pub refusal: f32,
+}
+
+#[derive(Serialize)]
+pub struct FullEval {
     pub example: EvalExample,
-    pub outcome: PipelineOutcome,
+    pub outcome: FullOutcome,
 }
 
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum PipelineOutcome {
+pub enum FullOutcome {
     Ok {
         answer: Answer,
         retrieval_metrics: RetrievalMetrics,
@@ -87,9 +101,37 @@ pub enum PipelineOutcome {
     },
 }
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Default, Debug)]
 pub struct RetrievalMetrics {
-    pub chunk_match: bool,
+    pub recall_at_1: bool,
+    pub recall_at_3: bool,
+    pub recall_at_5: bool,
+    pub recall_at_10: bool,
+    pub mrr: f32,
+    pub found_at: usize,
+}
+
+impl RetrievalMetrics {
+    fn from(found: Option<usize>) -> Self {
+        match found {
+            None => Self {
+                recall_at_1: false,
+                recall_at_3: false,
+                recall_at_5: false,
+                recall_at_10: false,
+                mrr: 0.0,
+                found_at: 0,
+            },
+            Some(idx) => Self {
+                recall_at_1: idx < 1,
+                recall_at_3: idx < 3,
+                recall_at_5: idx < 5,
+                recall_at_10: idx < 10,
+                mrr: 1.0 / (idx as f32 + 1.0),
+                found_at: idx + 1,
+            },
+        }
+    }
 }
 
 #[derive(Serialize, Default)]
@@ -98,7 +140,7 @@ pub struct GenerationMetrics {
     pub refused: bool,
 }
 
-impl PipelineOutcome {
+impl FullOutcome {
     pub fn metrics<'s>(&'s self) -> Option<MetricsRef<'s>> {
         match self {
             Self::Ok {
@@ -122,7 +164,7 @@ pub struct MetricsRef<'a> {
 #[derive(Serialize)]
 pub struct RetrievalEvaluation {
     pub evals: Vec<RetrievalEval>,
-    pub chunk_ratio: f32,
+    pub ratios: RetrievalRatios,
 }
 
 #[derive(Serialize)]
@@ -134,8 +176,13 @@ pub struct RetrievalEval {
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RetrievalOutcome {
-    Ok { metrics: RetrievalMetrics },
-    Errored { error: Vec<String> },
+    Ok {
+        retrieval: Vec<RetrievalResult>,
+        metrics: RetrievalMetrics,
+    },
+    Errored {
+        error: Vec<String>,
+    },
 }
 
 impl RetrievalOutcome {
@@ -156,9 +203,9 @@ impl<P: Pipeline> PipelineEvaluator<P> {
         Self { pipeline }
     }
 
-    pub async fn run(&self) -> Result<PipelineEvaluation, EvalError> {
+    pub async fn run(&self) -> Result<FullEvaluation, EvalError> {
         let examples = get_golden_set(Path::new("./data/eval/golden.jsonl"))?;
-        let mut evals: Vec<PipelineEval> = Vec::new();
+        let mut evals: Vec<FullEval> = Vec::new();
 
         for example in examples {
             let outcome = match self
@@ -173,16 +220,18 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                 .await
             {
                 Ok(answer) => {
-                    let chunk_match = check_expected_chunk_contains(&example, &answer.retrieval);
+                    let retrieval_metrics = RetrievalMetrics::from(check_expected_chunk_contains(
+                        &example,
+                        &answer.retrieval,
+                    ));
                     let quote_match = check_expected_quote(&example, &answer.text);
                     let refused = check_refused(&example, &answer.text);
-                    let retrieval_metrics = RetrievalMetrics { chunk_match };
                     let generation_metrics = GenerationMetrics {
                         quote_match,
                         refused,
                     };
-                    tracing::info!(id = %example.id, quote_match, chunk_match, refused, "ok");
-                    PipelineOutcome::Ok {
+                    tracing::info!(id = %example.id, quote_match, ?retrieval_metrics, refused, "ok");
+                    FullOutcome::Ok {
                         answer,
                         retrieval_metrics,
                         generation_metrics,
@@ -190,33 +239,54 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                 }
                 Err(e) => {
                     tracing::warn!(id = %example.id, error = %e, "errored");
-                    PipelineOutcome::Errored {
+                    FullOutcome::Errored {
                         error: flatten_error_chain(&e),
                     }
                 }
             };
 
-            evals.push(PipelineEval { example, outcome });
+            evals.push(FullEval { example, outcome });
         }
 
         let metrics: Vec<MetricsRef> = evals.iter().filter_map(|e| e.outcome.metrics()).collect();
         let total = metrics.len();
-        let chunk_passed = metrics
+        let recall_at_1_passed = metrics
             .iter()
-            .filter(|m| m.retr_metrics.chunk_match)
+            .filter(|m| m.retr_metrics.recall_at_1)
             .count();
+        let recall_at_3_passed = metrics
+            .iter()
+            .filter(|m| m.retr_metrics.recall_at_3)
+            .count();
+        let recall_at_5_passed = metrics
+            .iter()
+            .filter(|m| m.retr_metrics.recall_at_5)
+            .count();
+        let recall_at_10_passed = metrics
+            .iter()
+            .filter(|m| m.retr_metrics.recall_at_10)
+            .count();
+        let mrr_mean = metrics.iter().map(|m| m.retr_metrics.mrr).sum::<f32>() / total as f32;
         let quote_passed = metrics.iter().filter(|m| m.gen_metrics.quote_match).count();
         let refused_count = metrics.iter().filter(|m| m.gen_metrics.refused).count();
 
-        let chunk_ratio = ratio(chunk_passed, total);
-        let quote_ratio = ratio(quote_passed, total);
-        let refusal_ratio = ratio(refused_count, total);
+        let recall_at_1 = ratio(recall_at_1_passed, total);
+        let recall_at_3 = ratio(recall_at_3_passed, total);
+        let recall_at_5 = ratio(recall_at_5_passed, total);
+        let recall_at_10 = ratio(recall_at_10_passed, total);
+        let quote = ratio(quote_passed, total);
+        let refusal = ratio(refused_count, total);
 
-        Ok(PipelineEvaluation {
+        Ok(FullEvaluation {
             evals,
-            chunk_ratio,
-            quote_ratio,
-            refusal_ratio,
+            retrieval_ratios: RetrievalRatios {
+                recall_at_1,
+                recall_at_3,
+                recall_at_5,
+                recall_at_10,
+                mrr_mean,
+            },
+            generation_ratios: GenerationRatios { quote, refusal },
         })
     }
 }
@@ -247,10 +317,10 @@ impl<R: Retriever> RetrievalEvaluator<R> {
                 .await
             {
                 Ok(retrieval) => {
-                    let chunk_match = check_expected_chunk_contains(&example, &retrieval);
-                    let metrics = RetrievalMetrics { chunk_match };
-                    tracing::info!(id = %example.id, chunk_match, "ok");
-                    RetrievalOutcome::Ok { metrics }
+                    let metrics =
+                        RetrievalMetrics::from(check_expected_chunk_contains(&example, &retrieval));
+                    tracing::info!(id = %example.id, ?metrics, "ok");
+                    RetrievalOutcome::Ok { retrieval, metrics }
                 }
                 Err(e) => {
                     tracing::warn!(id = %example.id, error = %e, "errored");
@@ -266,11 +336,27 @@ impl<R: Retriever> RetrievalEvaluator<R> {
         let metrics: Vec<&RetrievalMetrics> =
             evals.iter().filter_map(|e| e.outcome.metrics()).collect();
         let total = metrics.len();
-        let chunk_passed = metrics.iter().filter(|m| m.chunk_match).count();
+        let recall_at_1_passed = metrics.iter().filter(|m| m.recall_at_1).count();
+        let recall_at_3_passed = metrics.iter().filter(|m| m.recall_at_3).count();
+        let recall_at_5_passed = metrics.iter().filter(|m| m.recall_at_5).count();
+        let recall_at_10_passed = metrics.iter().filter(|m| m.recall_at_10).count();
+        let mrr_mean = metrics.iter().map(|m| m.mrr).sum::<f32>() / total as f32;
 
-        let chunk_ratio = ratio(chunk_passed, total);
+        let recall_at_1 = ratio(recall_at_1_passed, total);
+        let recall_at_3 = ratio(recall_at_3_passed, total);
+        let recall_at_5 = ratio(recall_at_5_passed, total);
+        let recall_at_10 = ratio(recall_at_10_passed, total);
 
-        Ok(RetrievalEvaluation { evals, chunk_ratio })
+        Ok(RetrievalEvaluation {
+            evals,
+            ratios: RetrievalRatios {
+                recall_at_1,
+                recall_at_3,
+                recall_at_5,
+                recall_at_10,
+                mrr_mean,
+            },
+        })
     }
 }
 
@@ -358,18 +444,22 @@ pub fn check_refused(example: &EvalExample, answer: &str) -> bool {
 }
 
 /// Did any retrieved chunk contain at least one of the expected substrings?
-/// If `expected_chunk_contains` is empty, returns true (no expectations).
-pub fn check_expected_chunk_contains(example: &EvalExample, retrieval: &[RetrievalResult]) -> bool {
+/// If `expected_chunk_contains` is empty, returns default retrieval result.
+pub fn check_expected_chunk_contains(
+    example: &EvalExample,
+    retrieval: &[RetrievalResult],
+) -> Option<usize> {
     if example.expected_chunk_contains.is_empty() {
-        return true;
+        tracing::warn!(id = example.id, "unexpected empty expected_chunk_contains");
+        return None;
     }
     let normalized_chunks: Vec<String> =
         retrieval.iter().map(|r| normalize(&r.chunk.text)).collect();
-    example.expected_chunk_contains.iter().any(|needle| {
-        let normalized_needle = normalize(needle);
-        normalized_chunks
-            .iter()
-            .any(|chunk| chunk.contains(&normalized_needle))
+    normalized_chunks.iter().position(|chunk| {
+        example.expected_chunk_contains.iter().any(|needle| {
+            let normalized_needle = normalize(needle);
+            chunk.contains(&normalized_needle)
+        })
     })
 }
 
@@ -458,21 +548,57 @@ mod tests {
             "no effect when drawn on the Infector's turn".into(),
             "of a color that has been eradicated, do not add a cube".into(),
         ];
-        // Only the second alternative is in the retrieved chunk: still passes.
+        // Only the second alternative is in the retrieved chunk, at rank 0.
         let retrieval = vec![make_chunk(
             "If, however, the pictured city is of a color that has been eradicated, do not add a cube.",
         )];
-        assert!(check_expected_chunk_contains(&example, &retrieval));
-        // Neither alternative present: fails.
+        assert_eq!(check_expected_chunk_contains(&example, &retrieval), Some(0));
+
+        // Match at rank 2 (third chunk): position is 2.
+        let retrieval = vec![
+            make_chunk("Unrelated chunk one."),
+            make_chunk("Unrelated chunk two."),
+            make_chunk(
+                "If, however, the pictured city is of a color that has been eradicated, do not add a cube.",
+            ),
+        ];
+        assert_eq!(check_expected_chunk_contains(&example, &retrieval), Some(2));
+
+        // Neither alternative present anywhere: None.
         let retrieval = vec![make_chunk("Some unrelated chunk text.")];
-        assert!(!check_expected_chunk_contains(&example, &retrieval));
+        assert_eq!(check_expected_chunk_contains(&example, &retrieval), None);
     }
 
     #[test]
-    fn check_chunk_contains_empty_expected_passes() {
+    fn check_chunk_contains_empty_expected_returns_none() {
         let mut example = make_example(vec!["x"], vec![]);
         example.expected_chunk_contains = vec![];
-        assert!(check_expected_chunk_contains(&example, &[]));
+        assert_eq!(check_expected_chunk_contains(&example, &[]), None);
+    }
+
+    #[test]
+    fn retrieval_metrics_from_rank() {
+        // Rank 0: every recall@k passes, mrr = 1.0.
+        let m = RetrievalMetrics::from(Some(0));
+        assert!(m.recall_at_1 && m.recall_at_3 && m.recall_at_5 && m.recall_at_10);
+        assert_eq!(m.mrr, 1.0);
+
+        // Rank 2: @1 misses, @3/@5/@10 hit, mrr = 1/3.
+        let m = RetrievalMetrics::from(Some(2));
+        assert!(!m.recall_at_1);
+        assert!(m.recall_at_3 && m.recall_at_5 && m.recall_at_10);
+        assert!((m.mrr - 1.0 / 3.0).abs() < 1e-6);
+
+        // Rank 9: only @10 hits.
+        let m = RetrievalMetrics::from(Some(9));
+        assert!(!m.recall_at_1 && !m.recall_at_3 && !m.recall_at_5);
+        assert!(m.recall_at_10);
+        assert!((m.mrr - 0.1).abs() < 1e-6);
+
+        // No match: all false, mrr = 0.
+        let m = RetrievalMetrics::from(None);
+        assert!(!m.recall_at_1 && !m.recall_at_3 && !m.recall_at_5 && !m.recall_at_10);
+        assert_eq!(m.mrr, 0.0);
     }
 
     #[test]
