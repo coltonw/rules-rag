@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs::read_to_string,
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 // Anything with heavy comments was made or at least modified by an LLM. Actually kind of a nice marker for what I did vs what I didn't do.
@@ -74,12 +75,16 @@ pub struct RetrievalRatios {
     pub recall_at_5: f32,
     pub recall_at_10: f32,
     pub mrr_mean: f32,
+    pub elapsed_millis_p50: u64,
+    pub elapsed_millis_p95: u64,
 }
 
 #[derive(Serialize)]
 pub struct GenerationRatios {
     pub quote: f32,
     pub refusal: f32,
+    pub elapsed_millis_p50: u64,
+    pub elapsed_millis_p95: u64,
 }
 
 #[derive(Serialize)]
@@ -109,10 +114,11 @@ pub struct RetrievalMetrics {
     pub recall_at_10: bool,
     pub mrr: f32,
     pub found_at: usize,
+    pub elapsed_millis: u64,
 }
 
 impl RetrievalMetrics {
-    fn from(found: Option<usize>) -> Self {
+    fn from(found: Option<usize>, elapsed_millis: u64) -> Self {
         match found {
             None => Self {
                 recall_at_1: false,
@@ -121,6 +127,7 @@ impl RetrievalMetrics {
                 recall_at_10: false,
                 mrr: 0.0,
                 found_at: 0,
+                elapsed_millis,
             },
             Some(idx) => Self {
                 recall_at_1: idx < 1,
@@ -129,6 +136,7 @@ impl RetrievalMetrics {
                 recall_at_10: idx < 10,
                 mrr: 1.0 / (idx as f32 + 1.0),
                 found_at: idx + 1,
+                elapsed_millis,
             },
         }
     }
@@ -138,6 +146,7 @@ impl RetrievalMetrics {
 pub struct GenerationMetrics {
     pub quote_match: bool,
     pub refused: bool,
+    pub elapsed_millis: u64,
 }
 
 impl FullOutcome {
@@ -208,9 +217,10 @@ impl<P: Pipeline> PipelineEvaluator<P> {
         let mut evals: Vec<FullEval> = Vec::new();
 
         for example in examples {
-            let outcome = match self
+            let start = Instant::now();
+            let (retrieval_results, elapsed_millis_retrieval) = match self
                 .pipeline
-                .ask(
+                .retrieve(
                     &example.question,
                     &QueryOptions {
                         top_k: 5,
@@ -219,20 +229,45 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                 )
                 .await
             {
-                Ok(answer) => {
-                    let retrieval_metrics = RetrievalMetrics::from(check_expected_chunk_contains(
-                        &example,
-                        &answer.retrieval,
-                    ));
-                    let quote_match = check_expected_quote(&example, &answer.text);
-                    let refused = check_refused(&example, &answer.text);
+                Ok(results) => {
+                    let elapsed = start.elapsed().as_millis() as u64;
+                    (results, elapsed)
+                }
+                Err(e) => {
+                    tracing::warn!(id = %example.id, error = %e, "errored");
+                    evals.push(FullEval {
+                        example,
+                        outcome: FullOutcome::Errored {
+                            error: flatten_error_chain(&e),
+                        },
+                    });
+                    continue;
+                }
+            };
+            let outcome = match self
+                .pipeline
+                .ask_with(&example.question, &retrieval_results)
+                .await
+            {
+                Ok(text) => {
+                    let retrieval_metrics = RetrievalMetrics::from(
+                        check_expected_chunk_contains(&example, &retrieval_results),
+                        elapsed_millis_retrieval,
+                    );
+                    let quote_match = check_expected_quote(&example, &text);
+                    let refused = check_refused(&example, &text);
+                    let elapsed_millis = start.elapsed().as_millis() as u64;
                     let generation_metrics = GenerationMetrics {
                         quote_match,
                         refused,
+                        elapsed_millis,
                     };
                     tracing::info!(id = %example.id, quote_match, ?retrieval_metrics, refused, "ok");
                     FullOutcome::Ok {
-                        answer,
+                        answer: Answer {
+                            text,
+                            retrieval: retrieval_results,
+                        },
                         retrieval_metrics,
                         generation_metrics,
                     }
@@ -277,6 +312,21 @@ impl<P: Pipeline> PipelineEvaluator<P> {
         let quote = ratio(quote_passed, total);
         let refusal = ratio(refused_count, total);
 
+        let mut retrieval_elapsed_sorted: Vec<u64> = metrics
+            .iter()
+            .map(|m| m.retr_metrics.elapsed_millis)
+            .collect();
+        retrieval_elapsed_sorted.sort();
+        let p50_retrieval = retrieval_elapsed_sorted[retrieval_elapsed_sorted.len() / 2];
+        let p95_retrieval = retrieval_elapsed_sorted[retrieval_elapsed_sorted.len() * 19 / 20];
+        let mut generation_elapsed_sorted: Vec<u64> = metrics
+            .iter()
+            .map(|m| m.gen_metrics.elapsed_millis)
+            .collect();
+        generation_elapsed_sorted.sort();
+        let p50_generation = generation_elapsed_sorted[generation_elapsed_sorted.len() / 2];
+        let p95_generation = generation_elapsed_sorted[generation_elapsed_sorted.len() * 19 / 20];
+
         Ok(FullEvaluation {
             evals,
             retrieval_ratios: RetrievalRatios {
@@ -285,8 +335,15 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                 recall_at_5,
                 recall_at_10,
                 mrr_mean,
+                elapsed_millis_p50: p50_retrieval,
+                elapsed_millis_p95: p95_retrieval,
             },
-            generation_ratios: GenerationRatios { quote, refusal },
+            generation_ratios: GenerationRatios {
+                quote,
+                refusal,
+                elapsed_millis_p50: p50_generation,
+                elapsed_millis_p95: p95_generation,
+            },
         })
     }
 }
@@ -305,6 +362,7 @@ impl<R: Retriever> RetrievalEvaluator<R> {
         let mut evals: Vec<RetrievalEval> = Vec::new();
 
         for example in examples {
+            let start = Instant::now();
             let outcome = match self
                 .retriever
                 .retrieve(
@@ -317,8 +375,11 @@ impl<R: Retriever> RetrievalEvaluator<R> {
                 .await
             {
                 Ok(retrieval) => {
-                    let metrics =
-                        RetrievalMetrics::from(check_expected_chunk_contains(&example, &retrieval));
+                    let elapsed_millis = start.elapsed().as_millis() as u64;
+                    let metrics = RetrievalMetrics::from(
+                        check_expected_chunk_contains(&example, &retrieval),
+                        elapsed_millis,
+                    );
                     tracing::info!(id = %example.id, ?metrics, "ok");
                     RetrievalOutcome::Ok { retrieval, metrics }
                 }
@@ -347,6 +408,11 @@ impl<R: Retriever> RetrievalEvaluator<R> {
         let recall_at_5 = ratio(recall_at_5_passed, total);
         let recall_at_10 = ratio(recall_at_10_passed, total);
 
+        let mut elapsed_sorted: Vec<u64> = metrics.iter().map(|m| m.elapsed_millis).collect();
+        elapsed_sorted.sort();
+        let elapsed_millis_p50 = elapsed_sorted[elapsed_sorted.len() / 2];
+        let elapsed_millis_p95 = elapsed_sorted[elapsed_sorted.len() * 19 / 20];
+
         Ok(RetrievalEvaluation {
             evals,
             ratios: RetrievalRatios {
@@ -355,6 +421,8 @@ impl<R: Retriever> RetrievalEvaluator<R> {
                 recall_at_5,
                 recall_at_10,
                 mrr_mean,
+                elapsed_millis_p50,
+                elapsed_millis_p95,
             },
         })
     }
@@ -579,24 +647,24 @@ mod tests {
     #[test]
     fn retrieval_metrics_from_rank() {
         // Rank 0: every recall@k passes, mrr = 1.0.
-        let m = RetrievalMetrics::from(Some(0));
+        let m = RetrievalMetrics::from(Some(0), 0);
         assert!(m.recall_at_1 && m.recall_at_3 && m.recall_at_5 && m.recall_at_10);
         assert_eq!(m.mrr, 1.0);
 
         // Rank 2: @1 misses, @3/@5/@10 hit, mrr = 1/3.
-        let m = RetrievalMetrics::from(Some(2));
+        let m = RetrievalMetrics::from(Some(2), 0);
         assert!(!m.recall_at_1);
         assert!(m.recall_at_3 && m.recall_at_5 && m.recall_at_10);
         assert!((m.mrr - 1.0 / 3.0).abs() < 1e-6);
 
         // Rank 9: only @10 hits.
-        let m = RetrievalMetrics::from(Some(9));
+        let m = RetrievalMetrics::from(Some(9), 0);
         assert!(!m.recall_at_1 && !m.recall_at_3 && !m.recall_at_5);
         assert!(m.recall_at_10);
         assert!((m.mrr - 0.1).abs() < 1e-6);
 
         // No match: all false, mrr = 0.
-        let m = RetrievalMetrics::from(None);
+        let m = RetrievalMetrics::from(None, 0);
         assert!(!m.recall_at_1 && !m.recall_at_3 && !m.recall_at_5 && !m.recall_at_10);
         assert_eq!(m.mrr, 0.0);
     }

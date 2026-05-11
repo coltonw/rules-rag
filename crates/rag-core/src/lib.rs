@@ -93,4 +93,9 @@ pub trait Pipeline {
         options: &QueryOptions,
     ) -> Result<Vec<RetrievalResult>, Self::Error>;
     async fn ask(&self, question: &str, options: &QueryOptions) -> Result<Answer, Self::Error>;
+    async fn ask_with(
+        &self,
+        question: &str,
+        retrieval_results: &[RetrievalResult],
+    ) -> Result<String, Self::Error>;
 }

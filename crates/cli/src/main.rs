@@ -179,6 +179,9 @@ async fn main() -> anyhow::Result<()> {
                     evaluation.ratios.recall_at_10 * 100.0
                 );
                 println!("MRR mean:  {:.3}%", evaluation.ratios.mrr_mean);
+                println!("Latency:");
+                println!("  - p50: {:.1}ms", evaluation.ratios.elapsed_millis_p50);
+                println!("  - p95: {:.1}ms", evaluation.ratios.elapsed_millis_p95);
                 if evaluation.ratios.recall_at_1 < 1.0 {
                     println!("\nMissed Recall@1:\n")
                 }
@@ -247,6 +250,15 @@ async fn main() -> anyhow::Result<()> {
                     "Recall@5 match:  {:.1}%",
                     evaluation.retrieval_ratios.recall_at_5 * 100.0
                 );
+                println!("Retrieval latency:");
+                println!(
+                    "  - p50: {:.1}ms",
+                    evaluation.retrieval_ratios.elapsed_millis_p50
+                );
+                println!(
+                    "  - p95: {:.1}ms",
+                    evaluation.retrieval_ratios.elapsed_millis_p95
+                );
                 println!(
                     "Quote match:  {:.1}%",
                     evaluation.generation_ratios.quote * 100.0
@@ -254,6 +266,15 @@ async fn main() -> anyhow::Result<()> {
                 println!(
                     "Refusal rate: {:.1}%",
                     evaluation.generation_ratios.refusal * 100.0
+                );
+                println!("Total latency:");
+                println!(
+                    "  - p50: {:.1}ms",
+                    evaluation.generation_ratios.elapsed_millis_p50
+                );
+                println!(
+                    "  - p95: {:.1}ms",
+                    evaluation.generation_ratios.elapsed_millis_p95
                 );
                 let any_failures = evaluation.retrieval_ratios.recall_at_1 < 1.0
                     || evaluation.generation_ratios.quote < 1.0
@@ -280,6 +301,7 @@ async fn main() -> anyhow::Result<()> {
                             GenerationMetrics {
                                 quote_match,
                                 refused,
+                                ..
                             },
                         answer,
                     } = &wrong.outcome

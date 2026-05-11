@@ -39,11 +39,19 @@ impl Pipeline for NaivePipeline {
 
     async fn ask(&self, question: &str, options: &QueryOptions) -> Result<Answer, PipelineError> {
         let results = self.retrieve(question, options).await?;
-        let answer = self.generator.generate(question, &results).await?;
-
-        Ok(Answer {
-            text: answer,
+        self.ask_with(question, &results).await.map(|text| Answer {
+            text,
             retrieval: results,
         })
+    }
+
+    async fn ask_with(
+        &self,
+        question: &str,
+        results: &[RetrievalResult],
+    ) -> Result<String, PipelineError> {
+        let answer = self.generator.generate(question, results).await?;
+
+        Ok(answer)
     }
 }
