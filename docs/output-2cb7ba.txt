@@ -1,0 +1,747 @@
+Recall@1 match:  50.4%
+Recall@3 match:  82.6%
+Recall@5 match:  94.8%
+Recall@10 match:  99.1%
+MRR mean:  0.681
+Retrieval latency:
+  - p50: 85ms
+  - p95: 93ms
+Quote match:  83.5%
+Refusal rate: 1.7%
+Total latency:
+  - p50: 25480ms
+  - p95: 38559ms
+
+Wrong answers:
+
+Question:
+Do any roles get better special abilities throughout the game?
+Refusal
+Answer:
+Based on the provided rules chunks, there is no information indicating that any character roles gain or improve their special abilities throughout the course of the game.
+
+Question:
+What happens if the Player Draw Pile runs out before we discover all the cures?
+Quote failure
+Expected quote(s):
+  - If there aren't enough cards in the Player Draw Pile to draw, the game immediately ends in defeat for all players
+Answer:
+If the Player Draw Pile does not have enough cards when a player must draw cards, the game immediately ends in defeat for all players.
+
+> "The game ends immediately in defeat for all players if any of the following conditions occur: [...] - There are not enough cards in the Player Draw Pile when a player must draw cards."
+> — Pandemic Rules, p. 7
+
+Question:
+What happens if I need to add cubes of a color but the supply for that color is empty?
+Recall@1 failed
+Expected chunk(s):
+  - aren't any left of that color in the supply
+Answer:
+If you must add disease cubes to the board and run out of the required color in the supply, the game immediately ends in defeat for all players.
+
+> "The game ends immediately in defeat for all players if any of the following conditions occur:
+> - A player needs to add disease cubes to the board and there aren't any left of that color in the supply."
+> — Pandemic Rules, p. 7
+
+Question:
+What happens when an infection card of an eradicated color is drawn?
+Recall@1 failed
+Expected chunk(s):
+  - no effect when drawn on the Infector's turn
+  - of a color that has been eradicated, do not add a cube
+Answer:
+If an infection card shows a color that has been eradicated, you should not add any cubes to that city.
+
+> "If, however, the pictured city is of a color that has been *eradicated*, do *not* add a cube."
+> — Pandemic Rules, p. 7
+
+Question:
+How many outbreaks does it take to lose the game?
+Recall@1 failed
+Expected chunk(s):
+  - number of outbreaks ever reaches 8
+Answer:
+It takes the occurrence of the eighth outbreak for the game to immediately end in defeat for all players.
+
+> "If the number of outbreaks ever reaches 8 (and the Outbreaks Marker reaches the skull symbol), the game immediately ends in defeat for all players."
+> — Pandemic Rules, p. 7
+
+Question:
+When an Epidemic card is drawn, which infection card gets infected?
+Quote failure
+Expected quote(s):
+  - Take the bottom card from the Infection Draw Pile and add 3 cubes to the city pictured on the card
+Answer:
+When an Epidemic card is drawn, the infected card is the bottom card from the Infection Draw Pile. The player then adds cubes to the city pictured on this card and moves the card to the Infection Discard Pile.
+
+> "2. Infect: Take the bottom card from the Infection Draw Pile and add"
+> — Pandemic Rules, p. 6
+
+Question:
+I'm in Tokyo and want to Charter Flight to Paris. I have the Paris card in my hand but not the Tokyo card. Can I do it?
+Recall@1 failed
+Expected chunk(s):
+  - Play the card corresponding to your pawn's current location
+Answer:
+No, you cannot perform a Charter Flight if you do not have the card corresponding to your current location. The rules state that you must play the card of the city where your pawn is currently located.
+
+> "Play the card corresponding to your pawn's current location, and move to any city on the board. Discard the card to the Player Discard pile."
+> — Pandemic Rules, p. 4
+
+Question:
+Does a card still trigger Flag loss if it was on the bottom of the pile?
+Refusal
+Answer:
+I cannot determine if a card being on the bottom of the pile affects whether a Flag loss effect triggers. The rules only specify that the effect resolves when the flag is taken away from the card.
+
+> "Flag loss: Their effect is resolved when the flag is taken away from this card. Therefore this card must have been in flag possession beforehand."
+> — Challengers! Rules, p. 4
+
+Question:
+Which trophy do I get on round 1?
+Quote failure
+Expected quote(s):
+  - stacking them in descending order (7 at the bottom, and 1 on top)
+Answer:
+The provided rules do not specify which particular trophy you receive during Round 1. However, if you win the match, you will take the Trophy designated for that current round.
+
+> "If you win the match, take the Trophy of the current round from your park and place it next to your Tournament Plan. (Round)"
+> — Challengers! Rules, p. 3
+
+> "The Trophy you are competing for this Match Phase is identified by the number on it."
+> — Challengers! Rules, p. 2
+
+Question:
+What happens if my opponent has to bench cards but doesn't have enough empty seats on their bench?
+Recall@3 failed
+Expected chunk(s):
+  - does not have enough empty seats available
+Answer:
+This situation counts as one of the two ways you can win the match.
+
+> "There are 2 ways to win:
+> I. Your opponent is on the attack but cannot get enough total power to get in flag possession.
+> II. Your opponent must put one or more cards on their bench but does not have enough empty seats available."
+> — Challengers! Rules, p. 3
+
+Question:
+If a card gets an immediate power bonus during my attack, does the bonus persist when the card ends up in flag possession?
+Recall@1 failed
+Expected chunk(s):
+  - card keeps it even in flag possession
+Answer:
+Yes, if a card receives an immediate power bonus while it is being revealed during an attack, that bonus remains active even after the card is placed in flag possession.
+
+> "Important: If a card gets an immediate power bonus, that card keeps it even in flag possession."
+> — Challengers! Rules, p. 4
+
+Question:
+Is there a way to win immediately in a 2-player game without finishing all 7 rounds?
+Recall@1 failed
+Expected chunk(s):
+  - at least 11 fans more than your opponent
+Answer:
+Yes, in a 2-player game, you can win immediately if you have accumulated at least 11 more fans than your opponent at the end of any Match Phase.
+
+> "II. You win the game **immediately** if you have at least 11 fans more than your opponent at the end of a Match Phase."
+> — Challengers! Rules, p. 4
+
+Question:
+Do the two finalists draw and pick new cards before the final match begins?
+Recall@1 failed
+Expected chunk(s):
+  - do not draw and pick new cards
+Answer:
+No, the two finalists do not draw and pick new cards before the final match. Instead, they may remove cards from their deck.
+
+> "Before the final starts, you do not draw and pick new cards, but you may remove cards from your deck as in the Deck Phase."
+> — Challengers! Rules, p. 3
+
+Question:
+If a card has a Flag loss effect and the card that's about to take the flag has an In flag possession effect, which effect resolves first?
+Recall@1 failed
+Expected chunk(s):
+  - Flag loss effects are resolved prior to
+Answer:
+Flag loss effects resolve before effects that trigger when a card successfully takes the flag and enters flag possession.
+
+> "Flag loss effects are resolved prior to effects that apply when a card gets in flag possession."
+> — Challengers! Rules, p. 4
+
+Question:
+How many white chips until you bust?
+Recall@1 failed
+Expected chunk(s):
+  - sum of all white chips drawn exceeds the value of 7
+Answer:
+The pot will explode if the combined value of the white chips you draw exceeds 7.
+
+> "If the sum of all white chips drawn exceeds the value of 7, you have too many cherry bombs in your potion and the pot explodes! ... IMPORTANT! To determine if there is an explosion, only the values on the white chips are added up. The values on the other colored chips are not counted!"
+> — The Quacks of Quedlinberg Rules, p. 4
+
+Question:
+How many turns are in a game?
+Recall@3 failed
+Expected chunk(s):
+  - game consists of 9 turns
+Answer:
+The game consists of nine turns.
+
+> "The game consists of 9 turns. The Flame piece (turn marker) indicates what turn it is."
+> — The Quacks of Quedlinberg Rules, p. 3
+
+Question:
+What chips do I start the game with in my bag?
+Recall@1 failed
+Expected chunk(s):
+  - 4 white 1-chips
+Answer:
+You begin the game by putting a specific set of chips into your bag: four white 1-chips, two white 2-chips, one white 3-chip, one orange 1-chip, and one green 1-chip.
+
+> "Now each player takes 4 white 1-chips, 2 white 2-chips, 1 white 3-chip, 1 orange 1-chip and 1 green 1-chip, and puts them into their bag."
+> — The Quacks of Quedlinberg Rules, p. 3
+
+Question:
+When does the yellow ingredient book come into play?
+Recall@1 failed
+Expected chunk(s):
+  - Before beginning turn 2, lay out the yellow
+Answer:
+The yellow ingredient book is laid out before the game starts, specifically before beginning Turn 2, and once it is out, players can purchase the corresponding colored chips during the Evaluation Phase E.
+
+> "Before beginning turn 2, lay out the yellow ingredient book. Before turn 3, lay out the purple ingredient book. Once an ingredient book is put out, players may then buy those colored chips during the buy chips phase (Evaluation Phase E)."
+> — The Quacks of Quedlinberg Rules, p. 7
+
+Question:
+When does the purple ingredient book come into play?
+Quote failure
+Expected quote(s):
+  - Before turn 3, lay out the purple ingredient book
+Answer:
+The purple ingredient book will be put off to the side during setup and will become available when Turn 3 begins.
+
+> "They will come out in Turns 2 and 3 respectively."
+> "Before beginning turn 3, lay out the purple ingredient book."
+> — The Quacks of Quedlinberg Rules, p. 2 and p. 7
+
+Question:
+When can players start using rats, and is anyone excluded?
+Recall@1 failed
+Expected chunk(s):
+  - Everyone, except for the player in the lead
+Answer:
+Rats are introduced starting on the second round, and generally, any player except for the current leader can use them.
+
+> "The Rats (starting on the 2nd round) [...] Everyone, except for the player in the lead, can throw rat-tails into their pots, which enables them to move their rat stones forward in their pots."
+> — The Quacks of Quedlinberg Rules, p. 3
+
+Question:
+How many chips can I buy each turn and what are the restrictions?
+Recall@1 failed
+Expected chunk(s):
+  - buy 1 or 2 chips
+Answer:
+You may buy either one or two chips during the buying phase, but if you choose to buy two chips, they cannot be the same color.
+
+> "You may buy 1 or 2 chips. If buying 2 chips, they cannot be the same color."
+> — The Quacks of Quedlinberg Rules, p. 6
+
+Question:
+What happens if my chip lands on or past space 33?
+Recall@1 failed
+Expected chunk(s):
+  - 15 victory points and can go shopping with 35 coins
+Answer:
+If a chip lands exactly on or moves past space 33, you must place the chip on 33. When this happens, you receive 15 victory points and are able to shop with 35 coins.
+
+> "NOTE: If you happen to reach the last space in your pot (33) or move past it, place the chip on the 33 and take what is depicted on the spoon. You receive 15 victory points and can go shopping with 35 coins (see Evaluation Phase E)."
+> — The Quacks of Quedlinberg Rules, p. 6
+
+Question:
+If my pot exploded, can I still both score victory points and buy chips this turn?
+Recall@3 failed
+Expected chunk(s):
+  - chose between either Evaluation Phase D or E
+Answer:
+Based on the provided rules, if your pot has exploded, you must choose whether to participate in Evaluation Phase D (scoring victory points) or Evaluation Phase E (buying chips), and you cannot do both.
+
+> "WARNING! Players whose pot exploded now have to chose between either Evaluation Phase D or E."
+> — The Quacks of Quedlinberg Rules, p. 4
+
+Question:
+Can I buy victory points at the end of the game?
+Recall@1 failed
+Expected chunk(s):
+  - buy a victory point with either 5 coins or 2 rubies
+Answer:
+Yes, you can buy victory points at the end of the last turn. You can repurchase them repeatedly using either 5 coins or 2 rubies.
+
+> "At the end of the last turn, you can decide to buy a victory point with either 5 coins or 2 rubies. You can repeat this as often as you like."
+> — The Quacks of Quedlinberg Rules, p. 8
+
+Question:
+Does a player whose pot exploded get to roll the bonus die?
+Recall@3 failed
+Expected chunk(s):
+  - pot has exploded does not get to roll the die
+Answer:
+No, a player whose potion has exploded does not get to roll the die during the Evaluation Phase.
+
+> "Any player whose pot has exploded does not get to roll the die in Evaluation Phase A."
+> — The Quacks of Quedlinberg Rules, p. 5
+
+Question:
+How much does it cost to refill my flask?
+Recall@3 failed
+Expected chunk(s):
+  - fill up their flasks at the cost of 2 rubies
+Answer:
+It costs 2 rubies to fill up the flask.
+
+> "Players can fill up their flasks at the cost of **2 rubies**."
+> — The Quacks of Quedlinberg Rules, p. 7
+
+Question:
+Mid-Potions-Phase, can I spend 2 rubies to move my droplet forward right now to put my next chip on a higher space?
+Quote failure
+Expected quote(s):
+  - At the end of the turn, players can carry out the following actions (more than once) by spending rubies
+  - trade in 2 rubies and move their droplet 1 space forward
+Answer:
+No, the rulebook specifies that the Potions Phase does not involve individual turns, suggesting that actions like spending rubies to move your droplet forward are not available during this time.
+
+> "There are no individual turns during the Potions Phase. Everyone prepares their potions at the same time."
+> — The Quacks of Quedlinberg Rules, p. 4
+
+Question:
+Can I buy two chips of the same color this turn if I want to stock up?
+Recall@1 failed
+Expected chunk(s):
+  - If buying 2 chips, they cannot be the same color
+Answer:
+No, you cannot buy two chips of the same color. The rules state that if you buy two chips, they must be different colors.
+
+> "If buying 2 chips, they cannot be the same color."
+> — The Quacks of Quedlinberg Rules, p. 6
+
+Question:
+How many people figures do I place at the hut?
+Recall@1 failed
+Expected chunk(s):
+  - exactly 2 people figures of the same player
+Answer:
+You must place exactly 2 people figures of your color at the hut.
+
+> "Here **exactly 2 people figures of the same player** may be placed.
+> **Example:** Green places 2 people figues at the hut (if a player chooses the hut, he must place 2 figures there). The hut is full!"
+> — Stone Age Rules, p. 3
+
+Question:
+Can I send more people back to the forest later in the same round if I already placed there?
+Recall@1 failed
+Expected chunk(s):
+  - Placing again is not permitted
+Answer:
+Based on the rules, no, once you have placed people figures in a specific spot like the forest during the round, you cannot place additional people there later in the same round, even if there is capacity remaining.
+
+> "Passing is not permitted, if there are still places available for people. Placing again is not permitted. That is, for example, if red placed 4 people in the forest, he cannot later in the same round place more people in the forest, even if there is still room there."
+> — Stone Age Rules, p. 3
+
+Question:
+How do green-backed civilization cards score during final scoring?
+Recall@1 failed
+Expected chunk(s):
+  - different civilization cards with the green backgrounds
+Answer:
+Green-backed civilization cards score by multiplying the number of different cards you have by itself during final scoring.
+
+> "Multiple the different civilization cards with the green backgrounds by themselves."
+> — Stone Age Rules, p. 7
+
+Question:
+I have 2 people at the river with one unused value-2 tool. I roll the 2 dice for a total of 11. How much gold do I get?
+Recall@1 failed
+Expected chunk(s):
+  - for each full 6, the player takes 1 gold
+Answer:
+You will receive 2 gold. You calculate your total roll by adding the value of your unused tool (11 + 2 = 13). Since the resource from the River is calculated for every full 6 rolled, a total of 13 yields two units of 6 (and one remaining 1), resulting in 2 gold.
+
+> "**River** - for each **full 6**, the player takes **1 gold** from the supply."
+> **Example:** Red rolls 3 dice for his 3 people and gets 7. he has 3 value 2 tools and uses them to raise his total to 13. Thus, he takes 2 gold (2 time a full 6).
+> — Stone Age Rules, p. 5
+
+Question:
+After taking the hut action with 2 people on it, how many people do I need to feed that round, and what is my food production?
+Quote failure
+Expected quote(s):
+  - Here the player takes 1 additional people figure of his color from the general supply
+Answer:
+You must provide 1 food for each people figure you have on your player board, regardless of how they used the hut. For food production, you first draw food from the supply based on where your marker is placed on the food track.
+
+> "all players have taken all their people figures back to their player board, they must feed their people. Each people figure requires 1 food. First, each player takes food from the supply according to the postion of his marker on the food track."
+> — Stone Age Rules, p. 3
+
+Question:
+How do I win Res Arcana?
+Chunk not found
+Expected chunk(s):
+  - the player with the most points wins
+Answer:
+You win the game by accumulating the most victory points (VPs). Victory is checked at the end of a round, and a player must have 10 or more VPs to win. If multiple players are tied, the player with the most essences in their pool wins, and each Gold essence counts as two essences.
+
+> "The goal is to have the most points, 10 or more, when victory is checked."
+> "#### Winning: most VPs ... if tied, the tied player with most essences in their pool wins; each Gold in pool counts as 2 essences."
+> — Res Arcana Rules, p. 3 and p. 12
+
+Question:
+What does each mage start with?
+Recall@1 failed
+Expected chunk(s):
+  - 1 of each essence, 3 artifacts in hand
+Answer:
+Each mage starts with one of every type of essence, three artifacts in hand, and one magic item.
+
+> "Each mage begins with 1 of each essence, 3 artifacts in hand, and 1 magic item."
+> — Res Arcana Rules, p. 3
+
+Question:
+What actions can I take on my turn?
+Recall@3 failed
+Expected chunk(s):
+  - discard a card for 1 Gold or any 2 other essences
+Answer:
+On your turn, you must take one action, which can be to place an artifact, claim a monument or Place of Power, discard a card for resources, use a power, or pass.
+
+> "Do actions, 1 per turn, clockwise from the First Player:
+> - place an artifact,
+> - claim a monument or Place of Power,
+> - discard a card for 1 Gold or any 2 other essences,
+> - use a power on a straightened component, or
+> - pass: exchange magic items and draw 1 card."
+> — Res Arcana Rules, p. 5
+
+Question:
+What happens in the pass procedure?
+Quote failure
+Expected quote(s):
+  - if you are first to pass, take the First Player token
+Answer:
+When a player passes, they follow several steps, including taking the First Player token (if they are first to pass), swapping their magic item, and drawing a card. After these steps are completed, the player loses the ability to take any more actions that round and ignores all life loss.
+
+> "If you are the first to pass in a round, take the First Player token – worth 1 point when checking victory – and flip it over to its Passed side. Swap your magic item for a different one in the supply, flipping the new magic item over to its Passed side. Then, draw 1 card (if possible). If you have no cards in your deck, reshuffle your discards to form a new deck."
+> — Res Arcana Rules, p. 8
+
+Question:
+Can my opponent claim a Place of Power that I've already claimed?
+Quote failure
+Expected quote(s):
+  - Once claimed, a monument or Place of Power can not be taken by another player
+Answer:
+No, once a Place of Power has been claimed, an opponent cannot take it.
+
+> "Monuments and Places of Power are claimed from the center by paying their placement cost in essences. Once claimed, a monument or Place of Power cannot be taken by another player."
+> — Res Arcana Rules, p. 3
+
+Question:
+Can I use a power on a turned (sideways) component?
+Recall@1 failed
+Expected chunk(s):
+  - may not use its powers (except some React powers)
+Answer:
+Most general powers require the component to be straightened (not turned sideways) to be used. However, React powers provide an exception, allowing them to be used even if the component is turned, provided the power's cost does not involve turning the component.
+
+> "Once a component is turned, unlike abilities, you may not use its powers (except some React powers) until it is straightened."
+> — Res Arcana Rules, p. 7
+
+Question:
+What is Life Loss?
+Quote failure
+Expected quote(s):
+  - Each rival must lose the indicated number of Life essences from their pool
+Answer:
+Life Loss is a type of rival effect that compels a player to either activate a React power to negate the effect or pay the specified amount of Life essences. If a player cannot pay for all the necessary Life essences, they must instead lose two other essences from their pool for each Life essence they are missing. Additionally, any player who has passed cannot be affected by Life Loss.
+
+> "Life Loss: a rival's effect which requires you to either use a React power to ignore it or pay the indicated number of Life. For each Life you cannot pay, you must lose 2 other essences from your pool (if possible). Players who have passed ignore Life loss."
+> — Res Arcana Rules, p. 11
+
+Question:
+I've already passed this round. Later in the same round can I still use a power on one of my straightened components?
+Recall@3 failed
+Expected chunk(s):
+  - cannot do more actions that round
+Answer:
+No, once you pass, you cannot perform any further actions in the current round, including using a power.
+
+> "Once a player passes, that player cannot do more actions that round and ignores all Life loss, but can"
+> — Res Arcana Rules, p. 8
+
+Question:
+I just placed an artifact whose placement cost is 3 Death. I use the Sacrificial Pit's power to destroy it. How many essences do I get from the supply?
+Recall@3 failed
+Expected chunk(s):
+  - Total the number of essences in the cost
+Answer:
+You will gain a total number of essences from the supply equal to the original placement cost, which in this case is 3 essences.
+
+> "Some effects (e.g. Corrupt Altar, Fiery Whip, Sacrificial Dagger, Sacrificial Pit) produce a mix of essences based on an artifact's placement cost. Total the number of essences in the cost, adjust this by any modifier, and then take this number of essences from the supply, in any mix (subject to any listed restrictions)."
+> — Res Arcana Rules, p. 8
+
+Question:
+How do you win Paleo?
+Recall@3 failed
+Expected chunk(s):
+  - Once you have collected all 5 victory tokens
+Answer:
+To win the game, your tribe must complete the cave painting on the night board by collecting a total of five victory tokens. Once all five tokens are placed on the board, all players immediately win.
+
+> "The object of the game is to complete the cave painting on the night board. To do so, you must collect 5 victory tokens as a tribe, adding these tokens to the night board on the corresponding space. Once you have collected all 5 victory tokens, you finish the cave painting that cements your tribe's legacy, and all players immediately win the game!"
+> — Paleo Rules, p. 11
+
+Question:
+How do you lose Paleo?
+Recall@3 failed
+Expected chunk(s):
+  - 5th skull token
+Answer:
+A tribe loses the game if they collect their fifth skull token during the course of play.
+
+> "If your tribe collects a 5th skull token, all players **immediately** lose the game. In the rare event that you collect both the 5th skull token and the 5th victory token during the same action, the players win the game."
+> — Paleo Rules, p. 2
+
+Question:
+When I reveal a blue (action) card, what choices do I have?
+Recall@1 failed
+Expected chunk(s):
+  - must always choose exactly 1 of the following options
+Answer:
+When you resolve an action card, you must choose exactly one of three options: resolving an action to gain rewards, helping another player, or ignoring the card.
+
+> "You **must** always choose **exactly 1** of the following options:
+> - Resolve 1 of the actions and gain the rewards
+> - Help another player
+> - Ignore the card"
+> — Paleo Rules, p. 6
+
+Question:
+How do tool tokens work?
+Quote failure
+Expected quote(s):
+  - To use the ability on a tool token, you must discard it
+Answer:
+Tool tokens represent objects used for crafting and special abilities. They are placed next to your group, and once gained, they can be used immediately. Remember that using a tool token requires you to discard it, meaning each token can only be used one time.
+
+> "Tool tokens represent objects you can craft from ideas, as well as certain other objects such as pelts and roots. Place the tool token next to your group. You can use the ability on the tool as soon as you gain it."
+> — Paleo Rules, p. 11
+
+Additionally, tool tokens are required resources when crafting items, and if you fulfill the requirements, you must pay the necessary resources and tool tokens.
+
+> "This icon allows you to craft 1 item from the workbench. You must fulfill the requirements and pay the necessary resources and tool tokens in the same way you would pay for other actions."
+> — Paleo Rules, p. 8
+
+Question:
+My deck is empty so I went to sleep, but another player is in trouble. Can I still help them with my group's abilities?
+Recall@3 failed
+Expected chunk(s):
+  - cannot resolve cards or assist other players
+Answer:
+No, once your deck is empty and you go to sleep, you cannot resolve cards or assist other players.
+
+> "Once you have discarded all of your cards (your deck is empty), you go to sleep and stop participating in the day phase. Once you go to sleep, you cannot resolve cards or assist other players."
+> — Paleo Rules, p. 5
+
+Question:
+In one action I simultaneously place the 5th skull token and the 5th victory token. Who wins?
+Recall@1 failed
+Expected chunk(s):
+  - the players win the game
+Answer:
+The players win the game.
+
+> "In the rare event that you collect both the 5th skull token and the 5th victory token during the same action, the players win the game."
+> — Paleo Rules, p. 2
+
+Question:
+What are the phases of a turn in Spirit Island?
+Recall@1 failed
+Expected chunk(s):
+  - Each turn has the following phases
+Answer:
+The phases of a turn in Spirit Island are the Spirit Phase, Fast Power Phase, Invader Phase, Slow Power Phase, and Time Passes.
+
+> "Each turn has the following phases:
+> - 1. Spirit Phase
+> - 2. Fast Power Phase
+> - 3. Invader Phase
+> - 4. Slow Power Phase
+> - 5. Time Passes"
+> — Spirit Island Rules, p. 8
+
+Question:
+How can the players lose?
+Recall@3 failed
+Expected chunk(s):
+  - If any Spirit has no Presence left on the island
+Answer:
+Players can lose the game in three distinct ways: if too much Blight is accumulated, if any Spirit loses all its presence on the island, or if the Invader Deck runs out while attempting to draw an Invader Card.
+
+> "You can lose three ways:
+> - Too Much Blight: If the last Blight comes off of the Blight Card, you follow the instructions there, which are often "you lose".
+> - A Spirit Is Destroyed: If any Spirit has no Presence left on the island, you lose.
+> - Time Runs Out: If you need to draw an Invader Card (to Explore), but the Invader Deck is empty, you lose."
+> — Spirit Island Rules, p. 12
+
+Question:
+How much Damage does a City deal and how much Health does it have?
+Chunk not found
+Expected chunk(s):
+  - 3 Health and deal 3 Damage during Ravage
+Answer:
+A City deals 3 Damage and has 3 Health.
+
+> "City: A type of Invader. Does 3 Damage, has 3 Health. 2 Fear when destroyed."
+> — Spirit Island Rules, p. 32
+
+Question:
+How does Blight cascading work?
+Chunk not found
+Expected chunk(s):
+  - add a Blight to one adjacent land
+Answer:
+A Blight cascade occurs when new Blight is added to a location that already has Blight. The newly added Blight forces a cascade, requiring players to add another Blight to an adjacent land they choose.
+
+> "Because Blight already exists here, the newly added Blight causes a cascade: another Blight must be added to an adjacent land of the players' choosing."
+> — Spirit Island Rules, p. 11
+
+Question:
+How much Damage does a land need to take during Ravage for Blight to be added?
+Recall@1 failed
+Expected chunk(s):
+  - If 2 or more Damage is dealt, add a Blight to the land
+Answer:
+A land will have Blight added if 2 or more total damage is dealt to it during the Ravage action.
+
+> "Invaders Damage the Land: If 2 or more Damage is dealt, add a Blight to the land. (See sidebar.)... Partial Damage to the land is ignored."
+> — Spirit Island Rules, p. 9
+
+Question:
+What is a Sacred Site?
+Chunk not found
+Expected chunk(s):
+  - more than one Presence
+Answer:
+I cannot answer that because the provided rule chunks do not contain information about what a Sacred Site is.
+
+Question:
+What's the difference between Fast and Slow powers?
+Chunk not found
+Expected chunk(s):
+  - resolve their effects before the Invader Phase
+Answer:
+I'm not sure I can answer that. I do not have information regarding the difference between Fast and Slow powers in the provided rules chunks.
+
+Question:
+A Wetland has 2 Dahan and 1 Town and no other Invaders. The Invaders Ravage in Wetlands. Walk through what happens.
+Quote failure
+Expected quote(s):
+  - Every 2 points of Damage destroys one Dahan
+Answer:
+Based on the rules of *Scythe*, the sequence of events when the town encounters this scenario is as follows:
+
+### 1. Town Damage is Dealt (Town Town)
+The Town character deals damage to the Town character.
+*   **Outcome:** The Town character takes damage and may potentially be reduced to zero lives.
+
+### 2. Town Town Deals Damage (Town Town)
+The Town character deals damage to the Town Town character.
+*   **Outcome:** The Town Town character takes damage and may potentially be reduced to zero lives.
+
+### 3. The Round Concludes
+The characters remain on the board, facing each other, with varying levels of damage and remaining life points.
+
+***
+
+### Detailed Breakdown of Combat Resolution
+
+If we analyze the combat using the standard turn order (Town attacks Town Town, then Town Town attacks Town), the key mechanics are:
+
+**A. Town attacks Town Town:**
+*   The Town character attacks the Town Town character. The Town Town character takes damage equal to the Town character's current combat die roll.
+
+**B. Town Town attacks Town:**
+*   The Town Town character attacks the Town character. The Town character takes damage equal to the Town Town character's current combat die roll.
+
+**C. End of Turn:**
+*   The characters' life points are updated. Combat continues on subsequent turns until one or both characters are eliminated or they choose to end the combat.
+
+Question:
+A Stage I Invader Card is in the Build space showing one terrain type. A land of that terrain has only an Explorer in it. What gets built?
+Quote failure
+Expected quote(s):
+  - In all other cases, add a Town
+Answer:
+Building actions only occur in lands that contain Invaders.
+
+> "Do not Build in lands without Invaders."
+> — Spirit Island Rules, p. 10
+
+***
+
+*Self-Correction/Refinement:* I must ensure I answer the question directly based on the provided rules. The user asks about a land with *only* an Explorer. The rules state that building does not occur in lands *without* Invaders, and the Build action itself targets lands that *have* Invaders. Therefore, the assumption is that no building occurs in a land that only has an Explorer. I will stick to quoting the rule that governs the location of the build.<channel|>Building only occurs in lands that contain Invaders.
+
+> "Do not Build in lands without Invaders."
+> — Spirit Island Rules, p. 10
+
+Question:
+How much Fear is generated by destroying Invaders?
+Recall@1 failed
+Expected chunk(s):
+  - destroying a Town generates 1 Fear and destroying a City generates 2 Fear
+Answer:
+Destroying Invaders generates Fear based on the type of Invader: a Town generates 1 Fear, and a City generates 2 Fear.
+
+> "Destroying a Town generates 1 Fear and destroying a City generates 2 Fear, but removing or replacing does not."
+> — Spirit Island Rules, p. 18
+
+Question:
+I picked up a Major Power Card during Growth this turn. Do I have to do anything else before next turn, or just put it in my hand?
+Recall@1 failed
+Expected chunk(s):
+  - After you gain a Major Power, you must Forget
+Answer:
+When you gain a Major Power Card, you must immediately Forget one of your existing Power Cards, meaning you permanently lose it. The forgotten card must be put into the discard pile for its deck, unless it is a Unique Power, in which case it goes under your Spirit Panel.
+
+> "After you gain a Major Power, you must Forget permanently lose one of your Power Cards. Put the Forgotten Power Card into the discard pile for its deck. Place it under your Spirit Panel if it is one of your Unique Powers."
+> — Spirit Island Rules, p. 18
+
+Question:
+What does Defend do?
+Chunk not found
+Expected chunk(s):
+  - reduces Damage done by Invaders
+Answer:
+I'm sorry, but the provided rules chunks do not contain information about what "Defend" does.
+
+Question:
+I'm using a Power with Range 2 that says 'Gather 2 Dahan into target land'. I target a land 2 lands away from my Presence. Can the Dahan come from anywhere within Range 2 of my Presence?
+Recall@1 failed
+Expected chunk(s):
+  - Gather only pulls things in from adjacent lands
+Answer:
+No, the Dahan must be gathered only from the lands directly adjacent to your target land. The Range determines how far away you can *target*, but the source of the gathered items must be adjacent to that target.
+
+> "This means "Move that many things into the target land from land(s) adjacent to it". Gather only pulls things in from adjacent lands; boosts to a Power's Range do not affect Gathering distance."
+> — Spirit Island Rules, p. 19
+
+Question:
+Explore is for Mountains this turn. Mountain Land A is adjacent to a Town. Mountain Land B is empty and not adjacent to any Town, City, or Ocean. What happens to each?
+Recall@1 failed
+Expected chunk(s):
+  - adjacent to a Town, City, or Ocean
+Answer:
+An Explorer is added to Land A because it is adjacent to a Town. However, no Explorer is added to Land B because it is not adjacent to a Town, City, or Ocean, and therefore is not an accessible location for the Explore action.
+
+> "Add an Explorer to every land of the shown type which either: - · Contains a Town or City; or - Is adjacent to a Town, City, or Ocean."
+> — Spirit Island Rules, p. 10
+
+> "This land is not Coastal and is not adjacent to a land with any Towns or Cities. The Invaders do not Explore here."
+> — Spirit Island Rules, p. 11

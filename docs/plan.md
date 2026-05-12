@@ -16,41 +16,6 @@ mechanical work for Claude; *(yours)* is the learning work.
 
 ## Phase 1.3 — eval V2 (gates Phase 2)
 
-### 1.3.3 — Hardness expansion *(mostly mine, design with you)*
-
-Data-side work. Expands what the eval can stress.
-
-**More rulebooks.** Mix of long and medium for different pressure types:
-
-- One **long** (>20 pages): Spirit Island or Ark Nova. Stresses chunking
-  — fixed 512-token chunks across a 30-page rulebook will start losing
-  context that 8-page rulebooks didn't expose. Justifies Phase 2's
-  paragraph-aware chunker and Phase 4's hierarchical chunking.
-- Two-three **medium** (8-15 pages, dense rules): Wingspan, Azul,
-  Cascadia, or similar. Stresses disambiguation — six rulebooks with
-  overlapping vocabulary makes "What's the deck phase?" actually
-  ambiguous.
-
-Process: you pick games. I run `scripts/pdf2txt.sh`, do a smoke read to
-confirm parse quality (no contents-list / icon-emoji / Robot-section
-breakage like in Challengers), then generate ~10-15 golden questions per
-new game in batches for you to approve. You don't write questions; you
-review.
-
-**New question shapes.**
-
-- **Adversarial / wrong-premise**: "When I draw two Epidemics in a row,
-  what happens?" — answer is "nothing special, just resolve each." Tests
-  whether the model invents rules.
-- **Threshold questions** (like quacks-017): exact-direction precision
-  ("more than" vs "at least" vs "exceeds"). Cheap to write, real signal.
-- **No-game-filter flag** (`--no-game-filter`) on existing questions:
-  tests whether the embedding alone disambiguates across games. Makes
-  cross-game pressure measurable.
-
-Out of scope: multi-hop synthesis questions and enumerative questions —
-land those alongside the LLM judge in Phase 3.3.
-
 ### 1.3.4 — Cheap LLM-side metrics *(mine, mechanical)*
 
 The cheap parts of LLM-side instrumentation. Each is straightforward once
