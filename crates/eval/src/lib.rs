@@ -83,8 +83,8 @@ pub struct RetrievalRatios {
 pub struct GenerationRatios {
     pub quote: f32,
     pub refusal: f32,
-    pub elapsed_millis_p50: u64,
-    pub elapsed_millis_p95: u64,
+    pub total_elapsed_millis_p50: u64,
+    pub total_elapsed_millis_p95: u64,
 }
 
 #[derive(Serialize)]
@@ -146,7 +146,7 @@ impl RetrievalMetrics {
 pub struct GenerationMetrics {
     pub quote_match: bool,
     pub refused: bool,
-    pub elapsed_millis: u64,
+    pub total_elapsed_millis: u64,
 }
 
 impl FullOutcome {
@@ -223,7 +223,7 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                 .retrieve(
                     &example.question,
                     &QueryOptions {
-                        top_k: 5,
+                        top_k: 10,
                         game_filter: example.game.clone(),
                     },
                 )
@@ -246,7 +246,7 @@ impl<P: Pipeline> PipelineEvaluator<P> {
             };
             let outcome = match self
                 .pipeline
-                .ask_with(&example.question, &retrieval_results)
+                .ask_with(&example.question, &retrieval_results[..5])
                 .await
             {
                 Ok(text) => {
@@ -260,7 +260,7 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                     let generation_metrics = GenerationMetrics {
                         quote_match,
                         refused,
-                        elapsed_millis,
+                        total_elapsed_millis: elapsed_millis,
                     };
                     tracing::info!(id = %example.id, quote_match, ?retrieval_metrics, refused, "ok");
                     FullOutcome::Ok {
@@ -284,65 +284,39 @@ impl<P: Pipeline> PipelineEvaluator<P> {
         }
 
         let metrics: Vec<MetricsRef> = evals.iter().filter_map(|e| e.outcome.metrics()).collect();
+        let retrieval_metrics: Vec<&RetrievalMetrics> =
+            metrics.iter().map(|m| m.retr_metrics).collect();
         let total = metrics.len();
-        let recall_at_1_passed = metrics
-            .iter()
-            .filter(|m| m.retr_metrics.recall_at_1)
-            .count();
-        let recall_at_3_passed = metrics
-            .iter()
-            .filter(|m| m.retr_metrics.recall_at_3)
-            .count();
-        let recall_at_5_passed = metrics
-            .iter()
-            .filter(|m| m.retr_metrics.recall_at_5)
-            .count();
-        let recall_at_10_passed = metrics
-            .iter()
-            .filter(|m| m.retr_metrics.recall_at_10)
-            .count();
-        let mrr_mean = metrics.iter().map(|m| m.retr_metrics.mrr).sum::<f32>() / total as f32;
         let quote_passed = metrics.iter().filter(|m| m.gen_metrics.quote_match).count();
         let refused_count = metrics.iter().filter(|m| m.gen_metrics.refused).count();
 
-        let recall_at_1 = ratio(recall_at_1_passed, total);
-        let recall_at_3 = ratio(recall_at_3_passed, total);
-        let recall_at_5 = ratio(recall_at_5_passed, total);
-        let recall_at_10 = ratio(recall_at_10_passed, total);
-        let quote = ratio(quote_passed, total);
-        let refusal = ratio(refused_count, total);
+        let quote = ratio(quote_passed as f32, total);
+        let refusal = ratio(refused_count as f32, total);
 
-        let mut retrieval_elapsed_sorted: Vec<u64> = metrics
-            .iter()
-            .map(|m| m.retr_metrics.elapsed_millis)
-            .collect();
-        retrieval_elapsed_sorted.sort();
-        let p50_retrieval = retrieval_elapsed_sorted[retrieval_elapsed_sorted.len() / 2];
-        let p95_retrieval = retrieval_elapsed_sorted[retrieval_elapsed_sorted.len() * 19 / 20];
         let mut generation_elapsed_sorted: Vec<u64> = metrics
             .iter()
-            .map(|m| m.gen_metrics.elapsed_millis)
+            .map(|m| m.gen_metrics.total_elapsed_millis)
             .collect();
         generation_elapsed_sorted.sort();
-        let p50_generation = generation_elapsed_sorted[generation_elapsed_sorted.len() / 2];
-        let p95_generation = generation_elapsed_sorted[generation_elapsed_sorted.len() * 19 / 20];
+        let p50_generation = generation_elapsed_sorted
+            .get(generation_elapsed_sorted.len() / 2)
+            .copied()
+            .unwrap_or_default();
+        let p95_generation = generation_elapsed_sorted
+            .get(generation_elapsed_sorted.len() * 19 / 20)
+            .copied()
+            .unwrap_or_default();
+
+        let retrieval_ratios = summarize_retrieval(&retrieval_metrics);
 
         Ok(FullEvaluation {
             evals,
-            retrieval_ratios: RetrievalRatios {
-                recall_at_1,
-                recall_at_3,
-                recall_at_5,
-                recall_at_10,
-                mrr_mean,
-                elapsed_millis_p50: p50_retrieval,
-                elapsed_millis_p95: p95_retrieval,
-            },
+            retrieval_ratios,
             generation_ratios: GenerationRatios {
                 quote,
                 refusal,
-                elapsed_millis_p50: p50_generation,
-                elapsed_millis_p95: p95_generation,
+                total_elapsed_millis_p50: p50_generation,
+                total_elapsed_millis_p95: p95_generation,
             },
         })
     }
@@ -368,7 +342,7 @@ impl<R: Retriever> RetrievalEvaluator<R> {
                 .retrieve(
                     &example.question,
                     &QueryOptions {
-                        top_k: 5,
+                        top_k: 10,
                         game_filter: example.game.clone(),
                     },
                 )
@@ -396,35 +370,9 @@ impl<R: Retriever> RetrievalEvaluator<R> {
 
         let metrics: Vec<&RetrievalMetrics> =
             evals.iter().filter_map(|e| e.outcome.metrics()).collect();
-        let total = metrics.len();
-        let recall_at_1_passed = metrics.iter().filter(|m| m.recall_at_1).count();
-        let recall_at_3_passed = metrics.iter().filter(|m| m.recall_at_3).count();
-        let recall_at_5_passed = metrics.iter().filter(|m| m.recall_at_5).count();
-        let recall_at_10_passed = metrics.iter().filter(|m| m.recall_at_10).count();
-        let mrr_mean = metrics.iter().map(|m| m.mrr).sum::<f32>() / total as f32;
+        let ratios = summarize_retrieval(&metrics);
 
-        let recall_at_1 = ratio(recall_at_1_passed, total);
-        let recall_at_3 = ratio(recall_at_3_passed, total);
-        let recall_at_5 = ratio(recall_at_5_passed, total);
-        let recall_at_10 = ratio(recall_at_10_passed, total);
-
-        let mut elapsed_sorted: Vec<u64> = metrics.iter().map(|m| m.elapsed_millis).collect();
-        elapsed_sorted.sort();
-        let elapsed_millis_p50 = elapsed_sorted[elapsed_sorted.len() / 2];
-        let elapsed_millis_p95 = elapsed_sorted[elapsed_sorted.len() * 19 / 20];
-
-        Ok(RetrievalEvaluation {
-            evals,
-            ratios: RetrievalRatios {
-                recall_at_1,
-                recall_at_3,
-                recall_at_5,
-                recall_at_10,
-                mrr_mean,
-                elapsed_millis_p50,
-                elapsed_millis_p95,
-            },
-        })
+        Ok(RetrievalEvaluation { evals, ratios })
     }
 }
 
@@ -541,11 +489,46 @@ fn flatten_error_chain(e: &(dyn std::error::Error + 'static)) -> Vec<String> {
     chain
 }
 
-fn ratio(numerator: usize, denominator: usize) -> f32 {
+fn ratio(numerator: f32, denominator: usize) -> f32 {
     if denominator == 0 {
         0.0
     } else {
-        numerator as f32 / denominator as f32
+        numerator / denominator as f32
+    }
+}
+
+fn summarize_retrieval(metrics: &[&RetrievalMetrics]) -> RetrievalRatios {
+    let total = metrics.len();
+    let recall_at_1_passed = metrics.iter().filter(|m| m.recall_at_1).count();
+    let recall_at_3_passed = metrics.iter().filter(|m| m.recall_at_3).count();
+    let recall_at_5_passed = metrics.iter().filter(|m| m.recall_at_5).count();
+    let recall_at_10_passed = metrics.iter().filter(|m| m.recall_at_10).count();
+    let mrr_mean = ratio(metrics.iter().map(|m| m.mrr).sum::<f32>(), total);
+
+    let recall_at_1 = ratio(recall_at_1_passed as f32, total);
+    let recall_at_3 = ratio(recall_at_3_passed as f32, total);
+    let recall_at_5 = ratio(recall_at_5_passed as f32, total);
+    let recall_at_10 = ratio(recall_at_10_passed as f32, total);
+
+    let mut elapsed_sorted: Vec<u64> = metrics.iter().map(|m| m.elapsed_millis).collect();
+    elapsed_sorted.sort();
+    let elapsed_millis_p50 = elapsed_sorted
+        .get(elapsed_sorted.len() / 2)
+        .copied()
+        .unwrap_or_default();
+    let elapsed_millis_p95 = elapsed_sorted
+        .get(elapsed_sorted.len() * 19 / 20)
+        .copied()
+        .unwrap_or_default();
+
+    RetrievalRatios {
+        recall_at_1,
+        recall_at_3,
+        recall_at_5,
+        recall_at_10,
+        mrr_mean,
+        elapsed_millis_p50,
+        elapsed_millis_p95,
     }
 }
 

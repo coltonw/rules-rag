@@ -25,11 +25,8 @@ struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     verbose: u8,
 
-    #[arg(short('f'), long, global = true)]
-    chunks_fixed_512_24: bool,
-
-    #[arg(short('p'), long, global = true)]
-    chunks_paragraph: bool,
+    #[arg(short = 'c', long, value_enum, global = true, default_value_t = Chunker::Fixed51264)]
+    chunker: Chunker,
 
     #[command(subcommand)]
     command: Command,
@@ -54,6 +51,14 @@ enum Command {
     },
 }
 
+#[derive(Copy, Clone, clap::ValueEnum)]
+enum Chunker {
+    #[value(name = "fixed-512-64", alias = "f")]
+    Fixed51264,
+    #[value(alias = "p")]
+    Paragraph,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -67,11 +72,9 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_level));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
-    let table_name = if cli.chunks_paragraph {
-        "chunks_paragraph"
-    } else {
-        // default (since it is the only one for now)
-        "chunks_fixed_512_24"
+    let table_name = match cli.chunker {
+        Chunker::Fixed51264 => "chunks_fixed_512_64", // default
+        Chunker::Paragraph => todo!("Implement paragraph chunker"), // "chunker_paragraph"
     };
 
     let embedder = OllamaEmbedder::new();
@@ -221,7 +224,12 @@ async fn main() -> anyhow::Result<()> {
                         }
                         if cli.verbose > 0 {
                             println!("Actual failed chunks:\n");
-                            for rr in retrieval.iter().take(*found_at - 1) {
+                            let to_take = if *found_at > 0 {
+                                *found_at - 1
+                            } else {
+                                retrieval.len()
+                            };
+                            for rr in retrieval.iter().take(to_take) {
                                 println!(
                                     "Failed chunk {}:\n{}\n",
                                     rr.chunk.id,
@@ -270,11 +278,11 @@ async fn main() -> anyhow::Result<()> {
                 println!("Total latency:");
                 println!(
                     "  - p50: {:.1}ms",
-                    evaluation.generation_ratios.elapsed_millis_p50
+                    evaluation.generation_ratios.total_elapsed_millis_p50
                 );
                 println!(
                     "  - p95: {:.1}ms",
-                    evaluation.generation_ratios.elapsed_millis_p95
+                    evaluation.generation_ratios.total_elapsed_millis_p95
                 );
                 let any_failures = evaluation.retrieval_ratios.recall_at_1 < 1.0
                     || evaluation.generation_ratios.quote < 1.0

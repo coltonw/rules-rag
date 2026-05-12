@@ -68,7 +68,7 @@ crates/
 ├── embed/       Ollama embedding client.
 ├── store/       LanceDB wrapper. Schema + table mgmt.
 ├── retrieve/    Search strategies. Vector → hybrid (BM25 + RRF) →
-│                rerank → query rewrite. (Added in Phase 1.3.2.)
+│                rerank → query rewrite.
 ├── generate/    LLM answer generation. Prompt templates + Ollama client.
 ├── pipeline/    Orchestration. Wires retrieve + generate together.
 ├── eval/        Golden dataset loading, metrics (Recall@k, MRR,
@@ -76,9 +76,8 @@ crates/
 └── cli/         Binary. Subcommands: ingest, ask, eval.
 ```
 
-Currently scaffolded: `rag-core`, `ingest`, `embed`, `store`, `generate`,
-`pipeline`, `eval`, `cli`. The `retrieve` crate is added in Phase 1.3.2;
-others as their phase comes up.
+Currently scaffolded: `rag-core`, `ingest`, `embed`, `store`, `retrieve`,
+`generate`, `pipeline`, `eval`, `cli`. Others as their phase comes up.
 
 ```
 data/

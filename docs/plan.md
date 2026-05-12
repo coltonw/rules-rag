@@ -2,19 +2,10 @@
 
 Where we are: Phase 1 done (naive end-to-end), Phase 1.1 done (ingest
 manifest), Phase 1.2 done (eval harness with 62 hand-written goldens
-across Pandemic, Challengers!, Quacks). Phase 1.3 is in flight — eval V2,
-which gates Phase 2 because Phase 2's whole point is moving retrieval
-quality numbers we can't currently measure cleanly.
-
-A representative Phase 1.2 eval run:
-- Quote match: ~88-94% (depends whether you count known false-negatives)
-- Chunk match: ~98%
-- Wall-clock: ~30 minutes (Ollama is the bottleneck)
-
-The eval works but has three problems for "number go up" iteration:
-chunk-match has no headroom on 8-page rulebooks at top-5; there's only
-one pass/fail signal per metric, no curve to push on; 30-minute runtime
-kills iteration speed.
+across Pandemic, Challengers!, Quacks). Phase 1.3 in flight — eval V2,
+which gates Phase 2. 1.3.1 (eval cleanup) and 1.3.2 (retrieval-only mode +
+`retrieve` crate + Recall@k / MRR / latency) are done; 1.3.3 (hardness
+expansion) and 1.3.4 (cheap LLM-side metrics) remain.
 
 Conventions: each phase ends with re-running the eval so we can measure
 whether the new technique actually helped. Each subphase should be small
@@ -24,102 +15,6 @@ mechanical work for Claude; *(yours)* is the learning work.
 ---
 
 ## Phase 1.3 — eval V2 (gates Phase 2)
-
-These four are sequential within themselves but 1.3.1 and 1.3.3 can run in
-parallel with 1.3.2.
-
-### 1.3.1 — Eval cleanup *(mine, fast)*
-
-Eliminates known false-negatives in the current eval. Pure quality bump on
-the existing question set, no new architecture.
-
-Schema additions:
-
-```rust
-pub struct EvalExample {
-    // ...
-    pub expected_quote: Vec<String>,        // was String; ANY of these counts as a match
-    pub forbidden_phrases: Vec<String>,     // answer must NOT contain any of these
-}
-```
-
-ANY-match semantics for `expected_quote`: a hit on any one entry passes.
-Lets us cover "rule sentence OR worked example OR parallel phrasing on a
-different page" cases that produce 4 of our 7 current failures
-(pandemic-004, pandemic-014, quacks-020, quacks-021).
-
-`forbidden_phrases` is a flat blacklist: answer (after normalization)
-contains any of these → fail regardless of quote match. Default seed:
-`"no information"`, `"cannot determine"`, `"unable to determine"`,
-`"no chunk supports"`, `"not specified"`. Catches silent-refusal failures
-(pandemic-006, challengers-003) that quote-grep currently misses.
-
-Backfill: update JSONL to add alternative quotes for the 4 known
-false-negatives and any others that turn up. The validation test
-(`every_expected_substring_appears_in_source`) catches any quote that
-isn't actually in the source.
-
-Out of scope here: changing what entries exist, adding new questions,
-or changing the chunk-match check.
-
-### 1.3.2 — Retrieval-only mode + `retrieve` crate + Recall@k / MRR *(yours)*
-
-The big architectural change. Splits the Evaluator so retrieval can be
-benchmarked independently of generation, unlocking cheap iteration on
-chunkers/embedders/retrievers and exposing measurements that are
-currently invisible.
-
-**`retrieve` crate.** Pull retrieval out of `pipeline` into its own crate.
-Trait: `Retriever::retrieve(query, opts) -> Vec<RetrievalResult>`. First
-impl: `VectorRetriever` (what's inline in pipeline today). This is the
-moment to add the crate because (a) retrieval-only mode needs to construct
-retrieval without `Generator`, and (b) Phase 2 will add a second impl.
-
-**Multi-table LanceDB layout.** Parameterize the table name on chunker
-identity (`chunks_fixed_512_64`, `chunks_paragraph`, etc.) so different
-chunking strategies coexist without rebuild. Schema is shared; the table
-name is a function of `(chunker_name, chunker_config_hash)`. Eval picks
-which table to point at via config.
-
-**CLI surface.**
-
-```
-bgrag eval                     # full pipeline (slow, ~30 min)
-bgrag eval --retrieval-only    # retrieval only (~10 sec for 62 questions)
-```
-
-**Internal dispatch.** The flag selects between two evaluator types:
-
-```rust
-pub struct RetrievalEvaluator<S: VectorStore, E: Embedder> { ... }
-pub struct FullEvaluator<P: Pipeline> { ... }
-```
-
-`RetrievalEvaluator` doesn't hold a `Generator` and doesn't construct one
-(avoids the Ollama health-check on `OllamaGenerator::new()`). Each
-returns its own report shape — the retrieval-only report has no
-`answer` field, so the type system enforces the asymmetry. They share a
-`RetrievalMetrics` substruct so formatting helpers reuse. No `Evaluator`
-trait yet — YAGNI until there's a third evaluator.
-
-**Retrieval metrics.** All pure functions of `(question, top_k_chunks)`,
-free to compute once you have the retrieval results:
-
-- **Recall@k curve** at k=1, 3, 5, 10. Reveals the *shape* of retrieval
-  quality.
-- **MRR** (mean reciprocal rank): single number summarizing the curve.
-- **Retrieval latency** p50 / p95.
-
-**Schema decision.** `expected_chunk_contains` becomes `Vec<String>` with
-**ANY-match** semantics, mirroring `expected_quote`. Triggered by
-pandemic-014 (rule appears on pages 5 and 7, either passage is acceptable
-grounding). ALL-match semantics for multi-hop synthesis are deferred —
-when multi-hop lands, add a separate field `expected_chunks_all:
-Vec<String>` rather than overloading.
-
-**Expected finding.** Top-1 chunk-match is much worse than top-5
-chunk-match, which is the actual signal Phase 2's hybrid + reranker will
-move.
 
 ### 1.3.3 — Hardness expansion *(mostly mine, design with you)*
 
