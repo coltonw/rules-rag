@@ -205,11 +205,15 @@ impl RetrievalOutcome {
 
 pub struct PipelineEvaluator<P: Pipeline> {
     pipeline: P,
+    apply_game_filter: bool,
 }
 
 impl<P: Pipeline> PipelineEvaluator<P> {
-    pub fn new(pipeline: P) -> Self {
-        Self { pipeline }
+    pub fn new(pipeline: P, apply_game_filter: bool) -> Self {
+        Self {
+            pipeline,
+            apply_game_filter,
+        }
     }
 
     pub async fn run(&self) -> Result<FullEvaluation, EvalError> {
@@ -224,7 +228,11 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                     &example.question,
                     &QueryOptions {
                         top_k: 10,
-                        game_filter: example.game.clone(),
+                        game_filter: if self.apply_game_filter {
+                            example.game.clone()
+                        } else {
+                            None
+                        },
                     },
                 )
                 .await
@@ -324,11 +332,15 @@ impl<P: Pipeline> PipelineEvaluator<P> {
 
 pub struct RetrievalEvaluator<R: Retriever> {
     retriever: R,
+    apply_game_filter: bool,
 }
 
 impl<R: Retriever> RetrievalEvaluator<R> {
-    pub fn new(retriever: R) -> Self {
-        Self { retriever }
+    pub fn new(retriever: R, apply_game_filter: bool) -> Self {
+        Self {
+            retriever,
+            apply_game_filter,
+        }
     }
 
     pub async fn run(&self) -> Result<RetrievalEvaluation, EvalError> {
@@ -343,7 +355,11 @@ impl<R: Retriever> RetrievalEvaluator<R> {
                     &example.question,
                     &QueryOptions {
                         top_k: 10,
-                        game_filter: example.game.clone(),
+                        game_filter: if self.apply_game_filter {
+                            example.game.clone()
+                        } else {
+                            None
+                        },
                     },
                 )
                 .await

@@ -17,3 +17,23 @@ doc_type = "rules"
 file = "./data/pdfs/mage-knight-rulebook.txt"
 game = "Mage Knight Board Game"
 doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/spirit-island-rulebook.txt"
+game = "Spirit Island"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/paleo-rulebook.txt"
+game = "Paleo"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/stone-age-rulebook.txt"
+game = "Stone Age"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/res-arcana-rulebook.txt"
+game = "Res Arcana"
+doc_type = "rules"

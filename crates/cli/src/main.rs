@@ -48,6 +48,10 @@ enum Command {
     Eval {
         #[arg(short, long)]
         retrieval_only: bool,
+        /// Disable the per-question game metadata filter so retrieval runs across
+        /// all games. Measures cross-game disambiguation pressure.
+        #[arg(long)]
+        no_game_filter: bool,
     },
 }
 
@@ -160,10 +164,14 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
             println!("{}", answer.text);
         }
-        Command::Eval { retrieval_only } => {
+        Command::Eval {
+            retrieval_only,
+            no_game_filter,
+        } => {
+            let apply_game_filter = !no_game_filter;
             let retriever = FixedChunkRetriever::new(store, embedder);
             if retrieval_only {
-                let evaluator = RetrievalEvaluator::new(retriever);
+                let evaluator = RetrievalEvaluator::new(retriever, apply_game_filter);
                 let evaluation = evaluator.run().await?;
                 println!(
                     "Recall@1 match:  {:.1}%",
@@ -181,70 +189,72 @@ async fn main() -> anyhow::Result<()> {
                     "Recall@10 match:  {:.1}%",
                     evaluation.ratios.recall_at_10 * 100.0
                 );
-                println!("MRR mean:  {:.3}%", evaluation.ratios.mrr_mean);
+                println!("MRR mean:  {:.3}", evaluation.ratios.mrr_mean);
                 println!("Latency:");
                 println!("  - p50: {:.1}ms", evaluation.ratios.elapsed_millis_p50);
                 println!("  - p95: {:.1}ms", evaluation.ratios.elapsed_millis_p95);
-                if evaluation.ratios.recall_at_1 < 1.0 {
-                    println!("\nMissed Recall@1:\n")
-                }
-                for wrong in evaluation
-                    .evals
-                    .iter()
-                    .filter(|e| e.outcome.metrics().is_some_and(|m| !m.recall_at_1))
-                {
-                    println!("Question:\n{}", wrong.example.question);
-                    // This pattern match is unecessary because you can only get here if chunk_match was false, but very soon
-                    // we will be adding more retrieval metrics and this already being set up will make that much easier
-                    #[allow(clippy::collapsible_if)]
-                    if let RetrievalOutcome::Ok {
-                        retrieval,
-                        metrics:
-                            RetrievalMetrics {
-                                recall_at_3,
-                                recall_at_5,
-                                recall_at_10,
-                                found_at,
-                                ..
-                            },
-                    } = &wrong.outcome
+                if cli.verbose > 0 {
+                    if evaluation.ratios.recall_at_1 < 1.0 {
+                        println!("\nMissed Recall@1:\n")
+                    }
+                    for wrong in evaluation
+                        .evals
+                        .iter()
+                        .filter(|e| e.outcome.metrics().is_some_and(|m| !m.recall_at_1))
                     {
-                        if !recall_at_10 {
-                            println!("Chunk(s) failed Recall@10");
-                        } else if !recall_at_5 {
-                            println!("Chunk(s) passed Recall@10 but failed Recall@5");
-                        } else if !recall_at_3 {
-                            println!("Chunk(s) passed Recall@5 but failed Recall@3");
-                        } else {
-                            println!("Chunk(s) passed Recall@3 but failed Recall@1");
-                        }
-                        println!("Expected chunk(s):");
-                        for c in &wrong.example.expected_chunk_contains {
-                            println!("  - {}", c);
-                        }
-                        if cli.verbose > 0 {
-                            println!("Actual failed chunks:\n");
-                            let to_take = if *found_at > 0 {
-                                *found_at - 1
+                        println!("Question:\n{}", wrong.example.question);
+                        // This pattern match is unecessary because you can only get here if chunk_match was false, but very soon
+                        // we will be adding more retrieval metrics and this already being set up will make that much easier
+                        #[allow(clippy::collapsible_if)]
+                        if let RetrievalOutcome::Ok {
+                            retrieval,
+                            metrics:
+                                RetrievalMetrics {
+                                    recall_at_3,
+                                    recall_at_5,
+                                    recall_at_10,
+                                    found_at,
+                                    ..
+                                },
+                        } = &wrong.outcome
+                        {
+                            if !recall_at_10 {
+                                println!("Chunk(s) failed Recall@10");
+                            } else if !recall_at_5 {
+                                println!("Chunk(s) passed Recall@10 but failed Recall@5");
+                            } else if !recall_at_3 {
+                                println!("Chunk(s) passed Recall@5 but failed Recall@3");
                             } else {
-                                retrieval.len()
-                            };
-                            for rr in retrieval.iter().take(to_take) {
-                                println!(
-                                    "Failed chunk {}:\n{}\n",
-                                    rr.chunk.id,
-                                    rr.chunk.text.replace("\n\n", "\n").trim()
-                                );
+                                println!("Chunk(s) passed Recall@3 but failed Recall@1");
+                            }
+                            println!("Expected chunk(s):");
+                            for c in &wrong.example.expected_chunk_contains {
+                                println!("  - {}", c);
+                            }
+                            if cli.verbose > 1 {
+                                println!("Actual failed chunks:\n");
+                                let to_take = if *found_at > 0 {
+                                    *found_at - 1
+                                } else {
+                                    retrieval.len()
+                                };
+                                for rr in retrieval.iter().take(to_take) {
+                                    println!(
+                                        "Failed chunk {}:\n{}\n",
+                                        rr.chunk.id,
+                                        rr.chunk.text.replace("\n\n", "\n").trim()
+                                    );
+                                }
                             }
                         }
+                        println!();
                     }
-                    println!();
                 }
             } else {
                 let generator = OllamaGenerator::new();
                 let pipeline = NaivePipeline::new(retriever, generator);
 
-                let evaluator = PipelineEvaluator::new(pipeline);
+                let evaluator = PipelineEvaluator::new(pipeline, apply_game_filter);
                 let evaluation = evaluator.run().await?;
                 println!(
                     "Recall@1 match:  {:.1}%",
@@ -258,6 +268,11 @@ async fn main() -> anyhow::Result<()> {
                     "Recall@5 match:  {:.1}%",
                     evaluation.retrieval_ratios.recall_at_5 * 100.0
                 );
+                println!(
+                    "Recall@10 match:  {:.1}%",
+                    evaluation.retrieval_ratios.recall_at_10 * 100.0
+                );
+                println!("MRR mean:  {:.3}", evaluation.retrieval_ratios.mrr_mean);
                 println!("Retrieval latency:");
                 println!(
                     "  - p50: {:.1}ms",
