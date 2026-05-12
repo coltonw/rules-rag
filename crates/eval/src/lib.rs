@@ -5,6 +5,13 @@ use std::{
     path::{Path, PathBuf},
     time::Instant,
 };
+use tiktoken_rs::cl100k_base_singleton;
+
+/// cl100k token count for `text`. Used as a model-agnostic proxy per
+/// CLAUDE.md's convention.
+fn count_tokens(text: &str) -> usize {
+    cl100k_base_singleton().encode_with_special_tokens(text).len()
+}
 
 // Anything with heavy comments was made or at least modified by an LLM. Actually kind of a nice marker for what I did vs what I didn't do.
 
@@ -85,6 +92,10 @@ pub struct GenerationRatios {
     pub refusal: f32,
     pub total_elapsed_millis_p50: u64,
     pub total_elapsed_millis_p95: u64,
+    pub input_tokens_p50: usize,
+    pub input_tokens_p95: usize,
+    pub output_tokens_p50: usize,
+    pub output_tokens_p95: usize,
 }
 
 #[derive(Serialize)]
@@ -147,6 +158,12 @@ pub struct GenerationMetrics {
     pub quote_match: bool,
     pub refused: bool,
     pub total_elapsed_millis: u64,
+    /// cl100k token count for the proxy prompt (question + concatenated
+    /// retrieved chunk texts). Not the exact prompt the generator builds,
+    /// but a stable cross-model proxy per CLAUDE.md's convention.
+    pub input_tokens: usize,
+    /// cl100k token count for the generated answer.
+    pub output_tokens: usize,
 }
 
 impl FullOutcome {
@@ -265,10 +282,18 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                     let quote_match = check_expected_quote(&example, &text);
                     let refused = check_refused(&example, &text);
                     let elapsed_millis = start.elapsed().as_millis() as u64;
+                    let input_tokens = count_tokens(&example.question)
+                        + retrieval_results[..5.min(retrieval_results.len())]
+                            .iter()
+                            .map(|r| count_tokens(&r.chunk.text))
+                            .sum::<usize>();
+                    let output_tokens = count_tokens(&text);
                     let generation_metrics = GenerationMetrics {
                         quote_match,
                         refused,
                         total_elapsed_millis: elapsed_millis,
+                        input_tokens,
+                        output_tokens,
                     };
                     tracing::info!(id = %example.id, quote_match, ?retrieval_metrics, refused, "ok");
                     FullOutcome::Ok {
@@ -315,6 +340,11 @@ impl<P: Pipeline> PipelineEvaluator<P> {
             .copied()
             .unwrap_or_default();
 
+        let (input_tokens_p50, input_tokens_p95) =
+            percentiles(metrics.iter().map(|m| m.gen_metrics.input_tokens));
+        let (output_tokens_p50, output_tokens_p95) =
+            percentiles(metrics.iter().map(|m| m.gen_metrics.output_tokens));
+
         let retrieval_ratios = summarize_retrieval(&retrieval_metrics);
 
         Ok(FullEvaluation {
@@ -325,6 +355,10 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                 refusal,
                 total_elapsed_millis_p50: p50_generation,
                 total_elapsed_millis_p95: p95_generation,
+                input_tokens_p50,
+                input_tokens_p95,
+                output_tokens_p50,
+                output_tokens_p95,
             },
         })
     }
@@ -511,6 +545,17 @@ fn ratio(numerator: f32, denominator: usize) -> f32 {
     } else {
         numerator / denominator as f32
     }
+}
+
+fn percentiles<I: IntoIterator<Item = usize>>(values: I) -> (usize, usize) {
+    let mut sorted: Vec<usize> = values.into_iter().collect();
+    sorted.sort();
+    let p50 = sorted.get(sorted.len() / 2).copied().unwrap_or_default();
+    let p95 = sorted
+        .get(sorted.len() * 19 / 20)
+        .copied()
+        .unwrap_or_default();
+    (p50, p95)
 }
 
 fn summarize_retrieval(metrics: &[&RetrievalMetrics]) -> RetrievalRatios {

@@ -1804,6 +1804,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+ "tiktoken-rs",
  "tokio",
  "tracing",
 ]

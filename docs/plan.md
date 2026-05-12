@@ -2,10 +2,12 @@
 
 Where we are: Phase 1 done (naive end-to-end), Phase 1.1 done (ingest
 manifest), Phase 1.2 done (eval harness with 62 hand-written goldens
-across Pandemic, Challengers!, Quacks). Phase 1.3 in flight — eval V2,
-which gates Phase 2. 1.3.1 (eval cleanup) and 1.3.2 (retrieval-only mode +
-`retrieve` crate + Recall@k / MRR / latency) are done; 1.3.3 (hardness
-expansion) and 1.3.4 (cheap LLM-side metrics) remain.
+across Pandemic, Challengers!, Quacks). Phase 1.3 done — eval V2,
+which gates Phase 2. 1.3.1 (eval cleanup), 1.3.2 (retrieval-only mode +
+`retrieve` crate + Recall@k / MRR / latency), 1.3.3 (hardness expansion:
++4 rulebooks, +53 goldens, `--no-game-filter` flag), and 1.3.4 (cheap
+LLM-side metrics: refusal rate, latency p50/p95, input/output token
+counts via cl100k proxy) are all done. Phase 2 is up next.
 
 Conventions: each phase ends with re-running the eval so we can measure
 whether the new technique actually helped. Each subphase should be small
@@ -68,15 +70,6 @@ prompt. Run the eval against it.
 
 Real RAGs do compare against this — partly as sanity, partly because for
 small corpora the answer might genuinely be "don't bother retrieving."
-
-### 1.4.3 — Quote-faithfulness ratio *(yours, design)*
-
-Of the answer's character count, how much is verbatim from retrieved
-chunks vs invented. Definition isn't obvious — minimum quote length,
-allowed normalization, attribution of "the rulebook says" prefixes —
-that's the design work.
-
----
 
 ## Phase 2 — Hybrid search + multi-game
 

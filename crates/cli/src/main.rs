@@ -299,6 +299,24 @@ async fn main() -> anyhow::Result<()> {
                     "  - p95: {:.1}ms",
                     evaluation.generation_ratios.total_elapsed_millis_p95
                 );
+                println!("Input tokens (cl100k proxy):");
+                println!(
+                    "  - p50: {}",
+                    evaluation.generation_ratios.input_tokens_p50
+                );
+                println!(
+                    "  - p95: {}",
+                    evaluation.generation_ratios.input_tokens_p95
+                );
+                println!("Output tokens (cl100k proxy):");
+                println!(
+                    "  - p50: {}",
+                    evaluation.generation_ratios.output_tokens_p50
+                );
+                println!(
+                    "  - p95: {}",
+                    evaluation.generation_ratios.output_tokens_p95
+                );
                 let any_failures = evaluation.retrieval_ratios.recall_at_1 < 1.0
                     || evaluation.generation_ratios.quote < 1.0
                     || evaluation.generation_ratios.refusal > 0.0;
