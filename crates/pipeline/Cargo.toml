@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 generate = { path = "../generate" }
+ingest = { path = "../ingest" }
 rag-core = { path = "../rag-core" }
 retrieve = { path = "../retrieve" }
 thiserror = "2.0.18"

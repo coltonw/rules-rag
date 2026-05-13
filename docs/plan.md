@@ -1,13 +1,7 @@
 # RAG plan
 
-Where we are: Phase 1 done (naive end-to-end), Phase 1.1 done (ingest
-manifest), Phase 1.2 done (eval harness with 62 hand-written goldens
-across Pandemic, Challengers!, Quacks). Phase 1.3 done — eval V2,
-which gates Phase 2. 1.3.1 (eval cleanup), 1.3.2 (retrieval-only mode +
-`retrieve` crate + Recall@k / MRR / latency), 1.3.3 (hardness expansion:
-+4 rulebooks, +53 goldens, `--no-game-filter` flag), and 1.3.4 (cheap
-LLM-side metrics: refusal rate, latency p50/p95, input/output token
-counts via cl100k proxy) are all done. Phase 2 is up next.
+Where we are: Phase 1 done (naive end-to-end), all Phases 1.x done (eval
+improvements). Phase 2 is up next.
 
 Conventions: each phase ends with re-running the eval so we can measure
 whether the new technique actually helped. Each subphase should be small
@@ -15,61 +9,6 @@ enough to ship and re-eval independently. Threads marked *(mine)* are
 mechanical work for Claude; *(yours)* is the learning work.
 
 ---
-
-## Phase 1.3 — eval V2 (gates Phase 2)
-
-### 1.3.4 — Cheap LLM-side metrics *(mine, mechanical)*
-
-The cheap parts of LLM-side instrumentation. Each is straightforward once
-1.3.1 is in.
-
-- **Refusal rate**: % of answers containing any `forbidden_phrases`
-  value. Falls out of 1.3.1 essentially for free.
-- **Answer latency** p50 / p95 of `pipeline.ask()`.
-- **Token counts**: input/output tokens per question via `tiktoken-rs`
-  (already in stack).
-
-Descriptive metrics, not pass/fail. Move as you change models, prompts,
-or retrieval.
-
----
-
-## Phase 1.4 — when annoying
-
-Quality-of-life and measurement work that doesn't gate Phase 2 but is
-worth doing whenever the friction shows up.
-
-### 1.4.1 — Filtering + parallelism
-
-The 30-min full eval runtime is already annoying. 1.3.2's retrieval-only
-mode covers most iteration; this brings the slow path down too.
-
-```
-bgrag eval --only hard,reasoning      # tag-filtered subset
-bgrag eval --only easy --limit 5      # quick smoke test
-```
-
-Filters apply after loading the golden set, before the eval loop. Tag
-predicate: `--only A,B` matches questions whose tags include A OR B.
-
-**Parallelism.** Current `for example in examples` loop is sequential.
-Ollama can handle small concurrency; `futures::stream::iter(...)
-.buffered(N)` with N=4 should give 3-4x with no quality cost. Bound is
-conservative because local Ollama swaps if N is too high. Brings full
-eval to ~8 minutes.
-
-### 1.4.2 — Long-context baseline
-
-For a small static corpus, "stuff the whole rulebook in context" can
-beat RAG outright. Establish the ceiling number now so all Phase 2+
-improvements are measured against something honest.
-
-Implementation: a `FullContextPipeline` impl behind the `Pipeline`
-trait that skips retrieval and dumps the entire game's rulebook into the
-prompt. Run the eval against it.
-
-Real RAGs do compare against this — partly as sanity, partly because for
-small corpora the answer might genuinely be "don't bother retrieving."
 
 ## Phase 2 — Hybrid search + multi-game
 

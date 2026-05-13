@@ -92,10 +92,17 @@ pub trait Pipeline {
         question: &str,
         options: &QueryOptions,
     ) -> Result<Vec<RetrievalResult>, Self::Error>;
-    async fn ask(&self, question: &str, options: &QueryOptions) -> Result<Answer, Self::Error>;
     async fn ask_with(
         &self,
         question: &str,
         retrieval_results: &[RetrievalResult],
     ) -> Result<String, Self::Error>;
+
+    async fn ask(&self, question: &str, options: &QueryOptions) -> Result<Answer, Self::Error> {
+        let results = self.retrieve(question, options).await?;
+        self.ask_with(question, &results).await.map(|text| Answer {
+            text,
+            retrieval: results,
+        })
+    }
 }

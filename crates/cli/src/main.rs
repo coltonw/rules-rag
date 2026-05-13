@@ -8,10 +8,8 @@ use eval::{
 use generate::OllamaGenerator;
 use ingest::manifest::DocMeta;
 use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
-use pipeline::NaivePipeline;
-use rag_core::{
-    Chunk, Embedder as _, Generator as _, Pipeline as _, QueryOptions, VectorStore as _,
-};
+use pipeline::{FullContextPipeline, NaivePipeline};
+use rag_core::{Chunk, Embedder as _, Generator as _, Pipeline, QueryOptions, VectorStore as _};
 use retrieve::FixedChunkRetriever;
 use std::path::Path;
 use std::path::PathBuf;
@@ -52,6 +50,17 @@ enum Command {
         /// all games. Measures cross-game disambiguation pressure.
         #[arg(long)]
         no_game_filter: bool,
+
+        #[arg(short = 'p', long, value_enum, global = true, default_value_t = PipelineOption::Naive)]
+        pipeline: PipelineOption,
+
+        /// Only run evals that match one of the comma separated tags
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
+
+        /// Do a limited number for smaller tests
+        #[arg(long)]
+        limit: Option<usize>,
     },
 }
 
@@ -61,6 +70,12 @@ enum Chunker {
     Fixed51264,
     #[value(alias = "p")]
     Paragraph,
+}
+
+#[derive(Copy, Clone, clap::ValueEnum)]
+enum PipelineOption {
+    Naive,
+    FullContext,
 }
 
 #[tokio::main]
@@ -167,12 +182,22 @@ async fn main() -> anyhow::Result<()> {
         Command::Eval {
             retrieval_only,
             no_game_filter,
+            pipeline,
+            only,
+            limit,
         } => {
+            if matches!(pipeline, PipelineOption::FullContext) && (no_game_filter || retrieval_only)
+            {
+                return Err(anyhow!(
+                    "Incompatible options. --pipeline full-context cannot be used with --no-game-filter or --retrieval-only."
+                ));
+            }
             let apply_game_filter = !no_game_filter;
             let retriever = FixedChunkRetriever::new(store, embedder);
             if retrieval_only {
-                let evaluator = RetrievalEvaluator::new(retriever, apply_game_filter);
+                let evaluator = RetrievalEvaluator::new(retriever, apply_game_filter, only, limit);
                 let evaluation = evaluator.run().await?;
+                println!("Evals run: {}", evaluation.evals.len());
                 println!(
                     "Recall@1 match:  {:.1}%",
                     evaluation.ratios.recall_at_1 * 100.0
@@ -202,6 +227,7 @@ async fn main() -> anyhow::Result<()> {
                         .iter()
                         .filter(|e| e.outcome.metrics().is_some_and(|m| !m.recall_at_1))
                     {
+                        println!("ID: {}", wrong.example.id);
                         println!("Question:\n{}", wrong.example.question);
                         // This pattern match is unecessary because you can only get here if chunk_match was false, but very soon
                         // we will be adding more retrieval metrics and this already being set up will make that much easier
@@ -252,10 +278,21 @@ async fn main() -> anyhow::Result<()> {
                 }
             } else {
                 let generator = OllamaGenerator::new();
-                let pipeline = NaivePipeline::new(retriever, generator);
-
-                let evaluator = PipelineEvaluator::new(pipeline, apply_game_filter);
-                let evaluation = evaluator.run().await?;
+                let evaluation = match pipeline {
+                    PipelineOption::Naive => {
+                        let pipeline = NaivePipeline::new(retriever, generator);
+                        let evaluator =
+                            PipelineEvaluator::new(pipeline, apply_game_filter, only, limit);
+                        evaluator.run().await?
+                    }
+                    PipelineOption::FullContext => {
+                        let pipeline = FullContextPipeline::new(generator);
+                        let evaluator =
+                            PipelineEvaluator::new(pipeline, apply_game_filter, only, limit);
+                        evaluator.run().await?
+                    }
+                };
+                println!("Evals run: {}", evaluation.evals.len());
                 println!(
                     "Recall@1 match:  {:.1}%",
                     evaluation.retrieval_ratios.recall_at_1 * 100.0
@@ -299,16 +336,10 @@ async fn main() -> anyhow::Result<()> {
                     "  - p95: {:.1}ms",
                     evaluation.generation_ratios.total_elapsed_millis_p95
                 );
-                println!("Input tokens (cl100k proxy):");
-                println!(
-                    "  - p50: {}",
-                    evaluation.generation_ratios.input_tokens_p50
-                );
-                println!(
-                    "  - p95: {}",
-                    evaluation.generation_ratios.input_tokens_p95
-                );
-                println!("Output tokens (cl100k proxy):");
+                println!("Input tokens (approx):");
+                println!("  - p50: {}", evaluation.generation_ratios.input_tokens_p50);
+                println!("  - p95: {}", evaluation.generation_ratios.input_tokens_p95);
+                println!("Output tokens (approx):");
                 println!(
                     "  - p50: {}",
                     evaluation.generation_ratios.output_tokens_p50
@@ -330,6 +361,7 @@ async fn main() -> anyhow::Result<()> {
                             || m.gen_metrics.refused
                     })
                 }) {
+                    println!("ID: {}", wrong.example.id);
                     println!("Question:\n{}", wrong.example.question);
                     if let FullOutcome::Ok {
                         retrieval_metrics:

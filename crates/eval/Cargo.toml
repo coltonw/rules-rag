@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+futures = "0.3.32"
 pipeline = { path = "../pipeline" }
 rag-core = { path = "../rag-core" }
 serde = { version = "1.0.228", features = ["derive"] }

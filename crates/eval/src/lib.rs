@@ -1,3 +1,4 @@
+use futures::stream::{self, StreamExt};
 use rag_core::{Answer, Pipeline, QueryOptions, RetrievalResult, Retriever};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -10,7 +11,9 @@ use tiktoken_rs::cl100k_base_singleton;
 /// cl100k token count for `text`. Used as a model-agnostic proxy per
 /// CLAUDE.md's convention.
 fn count_tokens(text: &str) -> usize {
-    cl100k_base_singleton().encode_with_special_tokens(text).len()
+    cl100k_base_singleton()
+        .encode_with_special_tokens(text)
+        .len()
 }
 
 // Anything with heavy comments was made or at least modified by an LLM. Actually kind of a nice marker for what I did vs what I didn't do.
@@ -223,21 +226,38 @@ impl RetrievalOutcome {
 pub struct PipelineEvaluator<P: Pipeline> {
     pipeline: P,
     apply_game_filter: bool,
+    tag_filters: Vec<String>,
+    limit: Option<usize>,
 }
 
 impl<P: Pipeline> PipelineEvaluator<P> {
-    pub fn new(pipeline: P, apply_game_filter: bool) -> Self {
+    pub fn new(
+        pipeline: P,
+        apply_game_filter: bool,
+        tag_filters: Vec<String>,
+        limit: Option<usize>,
+    ) -> Self {
         Self {
             pipeline,
             apply_game_filter,
+            tag_filters,
+            limit,
         }
     }
 
     pub async fn run(&self) -> Result<FullEvaluation, EvalError> {
-        let examples = get_golden_set(Path::new("./data/eval/golden.jsonl"))?;
-        let mut evals: Vec<FullEval> = Vec::new();
+        let examples = get_golden_set(Path::new("./data/eval/golden.jsonl"))?
+            .into_iter()
+            .filter(|example| {
+                self.tag_filters.is_empty()
+                    || example
+                        .tags
+                        .iter()
+                        .any(|tag| self.tag_filters.contains(tag))
+            })
+            .take(self.limit.unwrap_or(usize::MAX));
 
-        for example in examples {
+        let evals: Vec<FullEval> = stream::iter(examples).map(|example| async move {
             let start = Instant::now();
             let (retrieval_results, elapsed_millis_retrieval) = match self
                 .pipeline
@@ -260,18 +280,17 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                 }
                 Err(e) => {
                     tracing::warn!(id = %example.id, error = %e, "errored");
-                    evals.push(FullEval {
+                    return FullEval {
                         example,
                         outcome: FullOutcome::Errored {
                             error: flatten_error_chain(&e),
                         },
-                    });
-                    continue;
+                    }
                 }
             };
             let outcome = match self
                 .pipeline
-                .ask_with(&example.question, &retrieval_results[..5])
+                .ask_with(&example.question, &retrieval_results)
                 .await
             {
                 Ok(text) => {
@@ -313,8 +332,11 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                 }
             };
 
-            evals.push(FullEval { example, outcome });
-        }
+            FullEval { example, outcome }
+        })
+            .buffer_unordered(4) // 4 at once
+            .collect()
+            .await;
 
         let metrics: Vec<MetricsRef> = evals.iter().filter_map(|e| e.outcome.metrics()).collect();
         let retrieval_metrics: Vec<&RetrievalMetrics> =
@@ -367,56 +389,77 @@ impl<P: Pipeline> PipelineEvaluator<P> {
 pub struct RetrievalEvaluator<R: Retriever> {
     retriever: R,
     apply_game_filter: bool,
+    tag_filters: Vec<String>,
+    limit: Option<usize>,
 }
 
 impl<R: Retriever> RetrievalEvaluator<R> {
-    pub fn new(retriever: R, apply_game_filter: bool) -> Self {
+    pub fn new(
+        retriever: R,
+        apply_game_filter: bool,
+        tag_filters: Vec<String>,
+        limit: Option<usize>,
+    ) -> Self {
         Self {
             retriever,
             apply_game_filter,
+            tag_filters,
+            limit,
         }
     }
 
     pub async fn run(&self) -> Result<RetrievalEvaluation, EvalError> {
-        let examples = get_golden_set(Path::new("./data/eval/golden.jsonl"))?;
-        let mut evals: Vec<RetrievalEval> = Vec::new();
+        let examples = get_golden_set(Path::new("./data/eval/golden.jsonl"))?
+            .into_iter()
+            .filter(|example| {
+                self.tag_filters.is_empty()
+                    || example
+                        .tags
+                        .iter()
+                        .any(|tag| self.tag_filters.contains(tag))
+            })
+            .take(self.limit.unwrap_or(usize::MAX));
 
-        for example in examples {
-            let start = Instant::now();
-            let outcome = match self
-                .retriever
-                .retrieve(
-                    &example.question,
-                    &QueryOptions {
-                        top_k: 10,
-                        game_filter: if self.apply_game_filter {
-                            example.game.clone()
-                        } else {
-                            None
+        let evals: Vec<RetrievalEval> = stream::iter(examples)
+            .map(|example| async move {
+                let start = Instant::now();
+                let outcome = match self
+                    .retriever
+                    .retrieve(
+                        &example.question,
+                        &QueryOptions {
+                            top_k: 10,
+                            game_filter: if self.apply_game_filter {
+                                example.game.clone()
+                            } else {
+                                None
+                            },
                         },
-                    },
-                )
-                .await
-            {
-                Ok(retrieval) => {
-                    let elapsed_millis = start.elapsed().as_millis() as u64;
-                    let metrics = RetrievalMetrics::from(
-                        check_expected_chunk_contains(&example, &retrieval),
-                        elapsed_millis,
-                    );
-                    tracing::info!(id = %example.id, ?metrics, "ok");
-                    RetrievalOutcome::Ok { retrieval, metrics }
-                }
-                Err(e) => {
-                    tracing::warn!(id = %example.id, error = %e, "errored");
-                    RetrievalOutcome::Errored {
-                        error: flatten_error_chain(&e),
+                    )
+                    .await
+                {
+                    Ok(retrieval) => {
+                        let elapsed_millis = start.elapsed().as_millis() as u64;
+                        let metrics = RetrievalMetrics::from(
+                            check_expected_chunk_contains(&example, &retrieval),
+                            elapsed_millis,
+                        );
+                        tracing::info!(id = %example.id, ?metrics, "ok");
+                        RetrievalOutcome::Ok { retrieval, metrics }
                     }
-                }
-            };
+                    Err(e) => {
+                        tracing::warn!(id = %example.id, error = %e, "errored");
+                        RetrievalOutcome::Errored {
+                            error: flatten_error_chain(&e),
+                        }
+                    }
+                };
 
-            evals.push(RetrievalEval { example, outcome });
-        }
+                RetrievalEval { example, outcome }
+            })
+            .buffer_unordered(4) // 4 at once
+            .collect()
+            .await;
 
         let metrics: Vec<&RetrievalMetrics> =
             evals.iter().filter_map(|e| e.outcome.metrics()).collect();

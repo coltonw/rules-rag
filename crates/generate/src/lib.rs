@@ -70,7 +70,7 @@ fn prompt(query: &str, retrieval: &[RetrievalResult]) -> String {
     let final_prompt = formatdoc! {"
         # Answer Board Game Rules Questions
 
-        You are a chatbot built for the sole purpose of answering rules questions
+        You are a chatbot built for the sole purpose of answering rules questions.
 
         - ONLY answer rules questions. For unrelated questions answer some version of \"I'm not sure I can answer that\"
         - ONLY give answers you can determine directly or reason about from provided rules chunks. If you cannot answer the users question, respond honestly.
