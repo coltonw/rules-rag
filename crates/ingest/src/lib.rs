@@ -97,6 +97,7 @@ impl Chunker for FixedSizeChunker {
 pub struct ParagraphChunker {
     pub target_size: usize,
     pub max_size: usize,
+    pub min_size: usize,
 }
 
 struct Section {
@@ -121,7 +122,136 @@ impl Section {
 impl ParagraphChunker {
     pub fn chunk_text(&self, text: &str) -> Vec<RawChunk> {
         let sections = self.parse_sections(text);
-        self.pack_sections(&sections)
+        let packed = self.pack_sections(&sections);
+        self.merge_small_chunks(packed)
+    }
+
+    fn merge_small_chunks(&self, chunks: Vec<RawChunk>) -> Vec<RawChunk> {
+        let from = chunks.len();
+        if chunks.len() <= 1 {
+            tracing::debug!(from, to = from, "merge_small_chunks");
+            return chunks;
+        }
+        let tokenizer = cl100k_base_singleton();
+        let allowed_specials = &HashSet::new();
+        let mut out: Vec<RawChunk> = Vec::new();
+        let mut pending: Option<RawChunk> = None;
+        let total = chunks.len();
+        for (i, chunk) in chunks.into_iter().enumerate() {
+            let current = if let Some(prev) = pending.take() {
+                RawChunk {
+                    text: format!("{}\n{}", prev.text, chunk.text),
+                    page: prev.page,
+                }
+            } else {
+                chunk
+            };
+            let is_last = i + 1 == total;
+            let tokens = tokenizer.encode(&current.text, allowed_specials).0.len();
+            if tokens >= self.min_size || is_last {
+                out.push(current);
+            } else {
+                pending = Some(current);
+            }
+        }
+        if let Some(last) = out.last() {
+            let last_tokens = tokenizer.encode(&last.text, allowed_specials).0.len();
+            if last_tokens < self.min_size && out.len() >= 2 {
+                let last = out.pop().expect("out has at least 2 elements");
+                let prev = out.last_mut().expect("out has at least 1 element");
+                prev.text = format!("{}\n{}", prev.text, last.text);
+            }
+        }
+        tracing::debug!(from, to = out.len(), "merge_small_chunks");
+        out
+    }
+
+    fn split_oversized_section(&self, section: &Section) -> Vec<RawChunk> {
+        let tokenizer = cl100k_base_singleton();
+        let allowed_specials = &HashSet::new();
+        // Prepend the section's heading line to every sub-chunk after the
+        // first so orphaned middle-of-section chunks retain context for
+        // retrieval. Reserve room for the prefix in the size budget so the
+        // final prefixed chunk still fits within max_size. Skip the prefix
+        // entirely if the heading itself would eat a quarter of the budget.
+        let heading_prefix: Option<String> = section
+            .heading_level()
+            .and_then(|_| section.paragraphs.first())
+            .and_then(|p| p.lines().next())
+            .map(|line| format!("{}\n", line));
+        let prefix_tokens = heading_prefix
+            .as_ref()
+            .map(|p| tokenizer.encode(p, allowed_specials).0.len())
+            .unwrap_or(0);
+        let (heading_prefix, prefix_tokens) = if prefix_tokens * 4 >= self.max_size {
+            (None, 0)
+        } else {
+            (heading_prefix, prefix_tokens)
+        };
+        let effective_max = self.max_size - prefix_tokens;
+        let mut sub_chunks: Vec<RawChunk> = Vec::new();
+        let prefixed = |text: String, n_emitted: usize| -> String {
+            if n_emitted == 0 {
+                text
+            } else {
+                match &heading_prefix {
+                    Some(p) => format!("{}{}", p, text),
+                    None => text,
+                }
+            }
+        };
+        let mut acc = String::new();
+        let mut acc_tokens: usize = 0;
+        for para in &section.paragraphs {
+            let para_with_nl = format!("{}\n", para);
+            let para_tokens = tokenizer.encode(&para_with_nl, allowed_specials).0.len();
+            if para_tokens > effective_max {
+                if !acc.is_empty() {
+                    let text = prefixed(std::mem::take(&mut acc), sub_chunks.len());
+                    sub_chunks.push(RawChunk {
+                        text,
+                        page: Some(section.page),
+                    });
+                    acc_tokens = 0;
+                }
+                let token_ids = tokenizer.encode(&para_with_nl, allowed_specials).0;
+                for slice in token_ids.chunks(effective_max) {
+                    let decoded = tokenizer
+                        .decode(slice)
+                        .expect("decoding tokens we just encoded should not fail");
+                    let text = prefixed(decoded, sub_chunks.len());
+                    sub_chunks.push(RawChunk {
+                        text,
+                        page: Some(section.page),
+                    });
+                }
+            } else if !acc.is_empty() && acc_tokens + para_tokens > effective_max {
+                let text = prefixed(std::mem::take(&mut acc), sub_chunks.len());
+                sub_chunks.push(RawChunk {
+                    text,
+                    page: Some(section.page),
+                });
+                acc_tokens = 0;
+                acc += &para_with_nl;
+                acc_tokens += para_tokens;
+            } else {
+                acc += &para_with_nl;
+                acc_tokens += para_tokens;
+            }
+        }
+        if !acc.is_empty() {
+            let text = prefixed(acc, sub_chunks.len());
+            sub_chunks.push(RawChunk {
+                text,
+                page: Some(section.page),
+            });
+        }
+        tracing::debug!(
+            n_sub_chunks = sub_chunks.len(),
+            page = section.page,
+            "split_oversized_section"
+        );
+        sub_chunks
     }
 
     fn parse_sections(&self, text: &str) -> Vec<Section> {
@@ -183,7 +313,7 @@ impl ParagraphChunker {
         }
         let mut chunk = "".to_string();
         let mut chunk_token_len = 0;
-        let mut chunk_page: u32 = 1;
+        let mut chunk_page: Option<u32> = None;
         let mut chunk_heading_level: Option<u8> = None;
         for section in sections {
             let section_text = section.paragraphs.join("\n");
@@ -199,13 +329,15 @@ impl ParagraphChunker {
                 "section"
             );
             if section_token_len > self.max_size {
-                tracing::warn!(
-                    tokens = section_token_len,
-                    max = self.max_size,
-                    page = section.page,
-                    heading_level = ?section_heading_level,
-                    "section exceeds max_size; emitting as a single oversized chunk"
+                flush(
+                    &mut chunks,
+                    &mut chunk,
+                    &mut chunk_token_len,
+                    &mut chunk_heading_level,
+                    &mut chunk_page,
                 );
+                chunks.extend(self.split_oversized_section(section));
+                continue;
             }
             let section_heading_flush = if let (Some(chunk_level), Some(section_level)) =
                 (chunk_heading_level, section_heading_level)
@@ -220,17 +352,14 @@ impl ParagraphChunker {
                     &mut chunk,
                     &mut chunk_token_len,
                     &mut chunk_heading_level,
-                    chunk_page,
+                    &mut chunk_page,
                 );
-                // TODO: check if this one section is too big for a single chunk and break on paragraphs if it is
                 chunk += &format!("{}\n", &section_text);
                 chunk_token_len += section_token_len;
-                chunk_page = section.page;
+                chunk_page = Some(section.page);
                 chunk_heading_level = section_heading_level;
             } else if section_token_len + chunk_token_len >= self.target_size {
-                if chunk.is_empty() {
-                    chunk_page = section.page;
-                }
+                chunk_page.get_or_insert(section.page);
                 chunk += &format!("{}\n", &section_text);
                 chunk_token_len += section_token_len;
                 chunk_heading_level = chunk_heading_level.or(section_heading_level);
@@ -239,12 +368,10 @@ impl ParagraphChunker {
                     &mut chunk,
                     &mut chunk_token_len,
                     &mut chunk_heading_level,
-                    chunk_page,
+                    &mut chunk_page,
                 );
             } else {
-                if chunk.is_empty() {
-                    chunk_page = section.page;
-                }
+                chunk_page.get_or_insert(section.page);
                 chunk += &format!("{}\n", &section_text);
                 chunk_token_len += section_token_len;
                 chunk_heading_level = chunk_heading_level.or(section_heading_level);
@@ -255,7 +382,7 @@ impl ParagraphChunker {
             &mut chunk,
             &mut chunk_token_len,
             &mut chunk_heading_level,
-            chunk_page,
+            &mut chunk_page,
         );
         tracing::debug!(n_chunks = chunks.len(), n_sections = sections.len(), "packed");
         chunks
@@ -277,22 +404,24 @@ fn flush(
     chunk: &mut String,
     chunk_token_len: &mut usize,
     chunk_heading_level: &mut Option<u8>,
-    chunk_page: u32,
+    chunk_page: &mut Option<u32>,
 ) {
     if !chunk.is_empty() {
+        let page = chunk_page.expect("chunk has content but page is not set");
         tracing::debug!(
             tokens = *chunk_token_len,
-            page = chunk_page,
+            page = page,
             heading_level = ?*chunk_heading_level,
             "emit chunk"
         );
         chunks.push(RawChunk {
             text: std::mem::take(chunk),
-            page: Some(chunk_page),
+            page: Some(page),
         });
     }
     *chunk_token_len = 0;
     *chunk_heading_level = None;
+    *chunk_page = None;
 }
 
 #[cfg(test)]
@@ -392,6 +521,7 @@ mod tests {
         let chunker = ParagraphChunker {
             target_size: 50,
             max_size: 100,
+            min_size: 0,
         };
         assert!(chunker.chunk_text("").is_empty());
     }
@@ -404,6 +534,7 @@ mod tests {
         let chunker = ParagraphChunker {
             target_size: 1000,
             max_size: 2000,
+            min_size: 0,
         };
         let text = "=== PAGE 1 ===\n\
                     intro paragraph\n\n\
@@ -426,6 +557,7 @@ mod tests {
         let chunker = ParagraphChunker {
             target_size: 1000,
             max_size: 2000,
+            min_size: 0,
         };
         let text = "=== PAGE 1 ===\n\
                     intro paragraph\n\n\
@@ -448,6 +580,7 @@ mod tests {
         let chunker = ParagraphChunker {
             target_size: 1000,
             max_size: 2000,
+            min_size: 0,
         };
         let text = "=== PAGE 1 ===\n\
                     intro paragraph\n\n\
@@ -478,6 +611,7 @@ mod tests {
         let chunker = ParagraphChunker {
             target_size: 10_000,
             max_size: 20_000,
+            min_size: 0,
         };
         let text = "=== PAGE 1 ===\n\
                     intro paragraph\n\n\
@@ -501,6 +635,7 @@ mod tests {
         let chunker = ParagraphChunker {
             target_size: 1,
             max_size: 1000,
+            min_size: 0,
         };
         let text = "=== PAGE 1 ===\n\
                     first content\n\n\
@@ -519,6 +654,7 @@ mod tests {
         let chunker = ParagraphChunker {
             target_size: 1,
             max_size: 1000,
+            min_size: 0,
         };
         let text = "=== PAGE 1 ===\n\
                     content here\n\
@@ -532,10 +668,11 @@ mod tests {
     }
 
     #[test]
-    fn paragraph_chunker_oversized_section_emits_its_own_chunk() {
+    fn paragraph_chunker_oversized_section_splits_across_sub_chunks() {
         let chunker = ParagraphChunker {
             target_size: 5,
             max_size: 10,
+            min_size: 0,
         };
         let body = (0..50)
             .map(|i| format!("word{i}"))
@@ -548,14 +685,28 @@ mod tests {
              ## Tail\n\nsmall last\n"
         );
         let chunks = chunker.chunk_text(&text);
-        // The big section alone exceeds max, so it gets its own chunk.
-        let big_chunk = chunks
+        let tokenizer = cl100k_base_singleton();
+        let allowed = HashSet::new();
+        for chunk in &chunks {
+            let tokens = tokenizer.encode(&chunk.text, &allowed).0.len();
+            assert!(
+                tokens <= chunker.max_size,
+                "chunk exceeds max_size: {} > {}",
+                tokens,
+                chunker.max_size
+            );
+        }
+        let all_text = chunks
             .iter()
-            .find(|c| c.text.contains("word49"))
-            .expect("oversized section should appear in some chunk");
-        assert!(big_chunk.text.contains("word0"));
-        assert!(!big_chunk.text.contains("small first"));
-        assert!(!big_chunk.text.contains("small last"));
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for i in 0..50 {
+            assert!(
+                all_text.contains(&format!("word{i}")),
+                "missing word{i} from emitted chunks"
+            );
+        }
     }
 
     #[test]
@@ -563,6 +714,7 @@ mod tests {
         let chunker = ParagraphChunker {
             target_size: 10_000,
             max_size: 20_000,
+            min_size: 0,
         };
         let text = "=== PAGE 1 ===\nstart\n\
                     === PAGE 2 ===\nmiddle\n\
@@ -580,6 +732,7 @@ mod tests {
         let chunker = ParagraphChunker {
             target_size: 1,
             max_size: 1000,
+            min_size: 0,
         };
         // No trailing newline, no closing page marker — the final paragraph
         // and section still need to be emitted.
@@ -594,6 +747,7 @@ mod tests {
         let chunker = ParagraphChunker {
             target_size: 1,
             max_size: 1000,
+            min_size: 0,
         };
         let text = "=== PAGE 1 ===\nfirst\n\n\n\nsecond\n";
         let chunks = chunker.chunk_text(text);
@@ -605,5 +759,180 @@ mod tests {
             "got: {:?}",
             chunks[0].text
         );
+    }
+
+    #[test]
+    fn paragraph_chunker_min_size_merges_tiny_chunk_forward() {
+        let chunker = ParagraphChunker {
+            target_size: 1000,
+            max_size: 2000,
+            min_size: 50,
+        };
+        let body_b = (0..80)
+            .map(|i| format!("bcontent{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let text = format!(
+            "=== PAGE 1 ===\n\
+             intro paragraph\n\n\
+             ## A\n\nalpha content\n\n\
+             ## B\n\n{body_b}\n"
+        );
+        let chunks = chunker.chunk_text(&text);
+        let merged = chunks
+            .iter()
+            .find(|c| c.text.contains("alpha content") && c.text.contains("bcontent0"))
+            .expect("expected ## A to merge forward into ## B");
+        assert!(merged.text.contains("A"));
+        assert!(merged.text.contains("B"));
+    }
+
+    #[test]
+    fn paragraph_chunker_min_size_merges_tiny_last_chunk_backward() {
+        let chunker = ParagraphChunker {
+            target_size: 1000,
+            max_size: 2000,
+            min_size: 50,
+        };
+        let body_a = (0..80)
+            .map(|i| format!("acontent{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let text = format!(
+            "=== PAGE 1 ===\n\
+             intro paragraph\n\n\
+             ## A\n\n{body_a}\n\n\
+             ## B\n\ntiny tail\n"
+        );
+        let chunks = chunker.chunk_text(&text);
+        let last = chunks.last().expect("at least one chunk");
+        assert!(
+            last.text.contains("tiny tail"),
+            "tiny last chunk should be appended to prior chunk"
+        );
+        assert!(
+            last.text.contains("acontent0"),
+            "the prior chunk content should be present too"
+        );
+    }
+
+    #[test]
+    fn paragraph_chunker_oversized_section_splits_into_sub_chunks() {
+        let chunker = ParagraphChunker {
+            target_size: 10,
+            max_size: 20,
+            min_size: 0,
+        };
+        let paragraphs = (0..10)
+            .map(|i| format!("alpha{i} bravo{i} charlie{i} delta{i} echo{i}"))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let text = format!("=== PAGE 1 ===\n## Big\n\n{paragraphs}\n");
+        let chunks = chunker.chunk_text(&text);
+        assert!(chunks.len() > 1, "expected multiple sub-chunks");
+        let tokenizer = cl100k_base_singleton();
+        let allowed = HashSet::new();
+        for chunk in &chunks {
+            let tokens = tokenizer.encode(&chunk.text, &allowed).0.len();
+            assert!(
+                tokens <= chunker.max_size,
+                "chunk exceeds max_size: {} > {}",
+                tokens,
+                chunker.max_size
+            );
+        }
+        let all_text = chunks
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        for i in 0..10 {
+            assert!(
+                all_text.contains(&format!("alpha{i}")),
+                "missing alpha{i}"
+            );
+            assert!(all_text.contains(&format!("echo{i}")), "missing echo{i}");
+        }
+    }
+
+    #[test]
+    fn paragraph_chunker_oversized_paragraph_token_split() {
+        let chunker = ParagraphChunker {
+            target_size: 5,
+            max_size: 10,
+            min_size: 0,
+        };
+        let huge_paragraph = (0..100)
+            .map(|i| format!("word{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let text = format!("=== PAGE 1 ===\n## Big\n\n{huge_paragraph}\n");
+        let chunks = chunker.chunk_text(&text);
+        assert!(chunks.len() > 1, "expected multiple sub-chunks");
+        let tokenizer = cl100k_base_singleton();
+        let allowed = HashSet::new();
+        for chunk in &chunks {
+            let tokens = tokenizer.encode(&chunk.text, &allowed).0.len();
+            assert!(
+                tokens <= chunker.max_size,
+                "chunk exceeds max_size: {} > {}",
+                tokens,
+                chunker.max_size
+            );
+        }
+        let concat: String = chunks.iter().map(|c| c.text.as_str()).collect();
+        for i in 0..100 {
+            assert!(concat.contains(&format!("word{i}")), "missing word{i}");
+        }
+    }
+
+    #[test]
+    fn paragraph_chunker_oversized_section_prefixes_heading_on_subchunks() {
+        let chunker = ParagraphChunker {
+            target_size: 10,
+            max_size: 30,
+            min_size: 0,
+        };
+        let paragraphs = (0..10)
+            .map(|i| format!("alpha{i} bravo{i} charlie{i} delta{i}"))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let text = format!("=== PAGE 1 ===\n## Combat\n\n{paragraphs}\n");
+        let chunks = chunker.chunk_text(&text);
+        assert!(chunks.len() > 1, "expected multiple sub-chunks");
+        for (i, chunk) in chunks.iter().enumerate() {
+            assert!(
+                chunk.text.contains("## Combat"),
+                "sub-chunk {i} missing heading prefix: {:?}",
+                chunk.text
+            );
+        }
+    }
+
+    #[test]
+    fn paragraph_chunker_oversized_section_without_heading_no_prefix() {
+        // A section with no heading should not get a prefix injected into
+        // its sub-chunks (there's nothing to prefix with).
+        let chunker = ParagraphChunker {
+            target_size: 5,
+            max_size: 20,
+            min_size: 0,
+        };
+        // No leading `#` line; build a long preamble that exceeds max so it
+        // hits split_oversized_section without a heading.
+        let paragraphs = (0..10)
+            .map(|i| format!("alpha{i} bravo{i} charlie{i} delta{i}"))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let text = format!("=== PAGE 1 ===\n{paragraphs}\n");
+        let chunks = chunker.chunk_text(&text);
+        assert!(chunks.len() > 1, "expected multiple sub-chunks");
+        for chunk in &chunks {
+            assert!(
+                !chunk.text.contains('#'),
+                "no-heading section should not inject `#` prefix: {:?}",
+                chunk.text
+            );
+        }
     }
 }

@@ -24,7 +24,7 @@ struct Cli {
     #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     verbose: u8,
 
-    #[arg(short = 'c', long, value_enum, global = true, default_value_t = Chunker::Fixed51264)]
+    #[arg(short = 'c', long, value_enum, global = true, default_value_t = Chunker::Paragraph)]
     chunker: Chunker,
 
     #[command(subcommand)]
@@ -144,8 +144,9 @@ async fn main() -> anyhow::Result<()> {
                     } // default
                     Chunker::Paragraph => {
                         let chunker = ParagraphChunker {
-                            target_size: 400,
-                            max_size: 512,
+                            min_size: 150,
+                            target_size: 350,
+                            max_size: 500,
                         };
                         chunker
                             .chunk(&doc_meta.file)
