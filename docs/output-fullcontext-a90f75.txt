@@ -1,0 +1,300 @@
+Evals run: 100
+Recall@1 match:  100.0%
+Recall@3 match:  100.0%
+Recall@5 match:  100.0%
+Recall@10 match:  100.0%
+MRR mean:  1.000
+Retrieval latency:
+  - p50: 0ms
+  - p95: 0ms
+Quote match:  79.0%
+Refusal rate: 1.0%
+Total latency:
+  - p50: 27443ms
+  - p95: 45746ms
+Input tokens (approx):
+  - p50: 4582
+  - p95: 6694
+Output tokens (approx):
+  - p50: 87
+  - p95: 194
+
+Wrong answers:
+
+ID: pandemic-001
+Question:
+How many actions are in a turn?
+Quote failure
+Expected quote(s):
+  - A player gets 4 actions to spend on her turn
+Answer:
+A player has 4 actions available during their turn.
+
+> "Each turn, the current player must:
+>
+> - 1 Take 4 actions
+> - 2 Draw 2 cards to add to his hand
+> - 3 Take on the role of the Infector"
+> — Pandemic Rules, p. 4
+
+ID: pandemic-006
+Question:
+Do any roles get better special abilities throughout the game?
+Refusal
+Answer:
+Based on the provided rules chunks, there is no information to suggest that any player roles gain or improve their special abilities throughout the course of the game.
+
+No citation is available.
+
+ID: pandemic-011
+Question:
+How many cubes of one color can a city hold before adding another causes an outbreak?
+Quote failure
+Expected quote(s):
+  - An outbreak occurs if a player is required to add a cube to a city that already has 3 cubes in it of that color
+Answer:
+A city can contain a maximum of three cubes of a single color; if any action requires adding a fourth cube of that color, it immediately triggers an outbreak.
+
+> "If a city already has 3 cubes in it of that color, instead of adding a 4th cube, an **outbreak** occurs in that color."
+> — Pandemic Rules, p. 7
+
+> "Note: No city can contain more than 3 cubes of any one color. If the Epidemic would cause the city to exceed that limit, any excess cubes are returned to the stock and an outbreak is triggered."
+> — Pandemic Rules, p. 6
+
+ID: challengers-005
+Question:
+Which trophy do I get on round 1?
+Quote failure
+Expected quote(s):
+  - stacking them in descending order (7 at the bottom, and 1 on top)
+Answer:
+According to the rules, when you win the match, you take the Trophy belonging to the current round. The provided rules detail the process of winning and receiving the trophy, but do not specify which particular trophy is assigned to Round 1.
+
+> "If you win the match, take the Trophy of the current round from your park and place it next to your Tournament Plan."
+> — Challengers! Rules, p. 3
+
+ID: the-quacks-of-quedlinberg-011
+Question:
+If my pot exploded, can I still both score victory points and buy chips this turn?
+Quote failure
+Expected quote(s):
+  - Players whose pot exploded now have to chose between either Evaluation Phase D or E
+Answer:
+Based on the provided rules, an exploded pot does not prevent you from scoring points or buying chips. In fact, one example shows that a player whose pot has exploded still participates in the scoring and purchasing phases.
+
+> "Nina's pot (red) exploded after drawing the white 3-chip. Her scoring space is the 19. Lucas (yellow) stopped in time. His scoring space is the 15. As a result, Lucas gets to roll the Bonus Die. He receives a ruby, 3 victory points, and can go shopping with 15 coins. Nina, on the other hand, has to decide if she prefers the 5 victory points or 19 coins. Nina decides to take the coins. She buys a green 2-chip for 8 coins and a blue 2-chip for 10 coins."
+> — The Quacks of Quedlinberg Rules, p. 7
+
+ID: the-quacks-of-quedlinberg-015
+Question:
+Does a player whose pot exploded get to roll the bonus die?
+Quote failure
+Expected quote(s):
+  - Any player whose pot has exploded does not get to roll the die in Evaluation Phase A
+Answer:
+No, players whose pot exploded are not allowed to roll the Bonus Die.
+
+> "First, everyone whose potion did not explode checks to see who has reached the highest scoring space. Some spaces have the same scoring value, in which case the furthest one from space-0 is the higher scoring space. This player gets to roll the Bonus Die for a bonus."
+> — The Quacks of Quedlinberg Rules, p. 6
+
+> "Players whose pots have exploded do not take part in Evaluation Phase A."
+> — The Quacks of Quedlinberg Rules, p. 5
+
+> "NOTE: If you happen to reach the last space in your pot (33) or move past it, place the chip on the 33 and take what is depicted on the spoon. You receive 15 victory points and can go shopping with 35 coins (see Evaluation Phase E). Everyone who has reached the last and highest possible scoring space gets to roll the Bonus Die. If your pot has blown up, you do not roll the die."
+> — The Quacks of Quedlinberg Rules, p. 6
+
+ID: stone-age-004
+Question:
+How is hunt food calculated from a dice roll?
+Quote failure
+Expected quote(s):
+  - For each full 2 of the thrown total, he takes 1 food from the game board
+Answer:
+The amount of food gained from the dice roll is determined by finding how many times 2 fits into the total number rolled. For every two points rolled, the player gains one unit of food.
+
+**Details:**
+*   **Calculation:** The total amount of food is the total number rolled divided by 2.
+*   **Example:** If the player rolls a total of 14, they receive 7 units of food (14 divided by 2).
+
+ID: stone-age-005
+Question:
+What dice total do I need to get one of each resource at the resource places?
+Quote failure
+Expected quote(s):
+  - for each full 3, the player takes 1 wood from the supply
+Answer:
+To acquire at least one of each type of resource (wood, brick, crystal, and gem), the total dice roll must be divisible by 3, 4, 5, and 6, respectively.
+
+The smallest number that is a multiple of 3, 4, 5, and 6 is **60**.
+
+Therefore, you would need a total roll of **60** or any multiple of 60 (e.g., 120) to guarantee one of every resource.
+
+ID: stone-age-007
+Question:
+What happens if I can't or don't want to feed all my people?
+Quote failure
+Expected quote(s):
+  - he immediately moves his scoring marker backwards 10 points on the scoring track
+Answer:
+If you cannot provide enough food for your players, you must subtract 10 points from your score.
+
+Specifically, the rule states:
+
+> "If you cannot feed your players, you must subtract 10 points from your score. You must also give any remaining food to the bank."
+
+ID: stone-age-006
+Question:
+Can I send more people back to the forest later in the same round if I already placed there?
+Quote failure
+Expected quote(s):
+  - Placing again is not permitted
+Answer:
+Based on the provided rules text, there is no provision allowing a player to place more than once during the placement phase.
+
+The placement phase is presented as a singular action where you must place the necessary people. Once the placement phase is complete, you proceed to the action phase.
+
+ID: stone-age-008
+Question:
+How do tools upgrade as I take more from the tool maker?
+Quote failure
+Expected quote(s):
+  - When a player takes a 4th - 6th tool, he turns over the 1's to 2's
+Answer:
+When acquiring tools, the increase in power follows a specific pattern based on how many tools you currently possess:
+
+*   **First Tool:** When you acquire your first tool, it has no specific value mentioned.
+*   **Second and Third Tools:** The second and third tools acquired are listed with specific values.
+*   **Fourth and Fifth Tools:** The fourth and fifth tools are listed with specific values.
+*   **Sixth, Seventh, and Eighth Tools:** The sixth, seventh, and eighth tools are listed with specific values.
+*   **Ninth Tool and Beyond:** Once you have your ninth tool, every subsequent tool you acquire has the same value as the ninth tool.
+
+***
+*Source: Rulebook, Tool Acquisition*
+
+ID: stone-age-010
+Question:
+How does the game end?
+Quote failure
+Expected quote(s):
+  - If there are not enough civilization cards remaining to fill the display at the beginning of the round, the game ends immediately
+Answer:
+The game ends in one of two ways: either when there are not enough civilization cards left to fill the display at the start of a round, or when at least one building stack is exhausted. If a building stack is empty, the current round must be completed, but the game will end immediately after.
+
+***
+
+**Source:** Page 7: "If the game ends immediately after."
+
+ID: stone-age-009
+Question:
+How do green-backed civilization cards score during final scoring?
+Quote failure
+Expected quote(s):
+  - Multiple the different civilization cards with the green backgrounds by themselves
+Answer:
+Green cards are scored by multiplying the number of cards by itself.
+
+**Source:** "Multiple the number of cards by itself." (See the section discussing the scoring of green cards).
+
+ID: stone-age-011
+Question:
+I'm short on resources to pay for a civilization card. Can I make up the difference with food?
+Quote failure
+Expected quote(s):
+  - he can never use food
+Answer:
+No, you cannot use food to pay for a card. You must use the appropriate resources (wood, brick, etc.) to purchase a card.
+
+ID: stone-age-012
+Question:
+If we run out of wood pieces in the supply, can players still take wood from the forest?
+Quote failure
+Expected quote(s):
+  - If a resource is exhausted, use a substitute material
+Answer:
+Yes, if a resource is unavailable, you can substitute it. The rules state that if a resource is depleted, you must use a substitute material.
+
+According to the rules:
+
+> "If a resource is depleted, you must use a substitute material."
+
+ID: stone-age-013
+Question:
+I have 2 people at the river with one unused value-2 tool. I roll the 2 dice for a total of 11. How much gold do I get?
+Quote failure
+Expected quote(s):
+  - for each full 6, the player takes 1 gold from the supply
+Answer:
+You have a total score of 11 (from your dice rolls, presumably).
+
+For the river, you only gain a reward for every **6 points** rolled.
+
+$$11 \div 6 = 1 \text{ (with a remainder of } 5)$$
+
+Therefore, you only collect **1** resource.
+
+ID: stone-age-014
+Question:
+After taking the hut action with 2 people on it, how many people do I need to feed that round, and what is my food production?
+Quote failure
+Expected quote(s):
+  - Here the player takes 1 additional people figure of his color from the general supply
+Answer:
+The amount of food required for upkeep is based on the **total number of people** you control in the game, not just the people you placed during that single turn.
+
+In summary:
+
+*   **Food Required:** You must feed every person you have currently on your side of the board.
+*   **Income:** The resources you gain to pay this upkeep (if any) are determined by the established resource gathering rules of the game.
+
+ID: res-arcana-004
+Question:
+What happens in the pass procedure?
+Quote failure
+Expected quote(s):
+  - if you are first to pass, take the First Player token
+Answer:
+If you are unable or unwilling to take an action, you must pass. The procedure requires you to take the First Player token, swap your magic item, draw a card, and this action means you cannot perform any more actions that round, although you can still gain essences from rivals' powers and ignore Life loss.
+
+> "If you are the first to pass in a round, take the First Player token – worth 1 point when checking victory – and flip it over to its Passed side. Swap your magic item for a different one in the supply, flipping the new magic item over to its Passed side. Then, draw 1 card (if possible). If you have no cards in your deck, reshuffle your discards to form a new deck. Once a player passes, that player cannot do more actions that round and ignores all Life loss, but can still gain essences from rivals' powers."
+> — Res Arcana Rules, p. 8
+
+ID: res-arcana-008
+Question:
+At victory check my opponent and I are tied at 11 points. I have 5 essences in my pool (2 Gold + 3 Calm). They have 6 essences with no Gold. Who wins?
+Quote failure
+Expected quote(s):
+  - with Gold essences counting double
+Answer:
+You win the tie because the rules specify that when players are tied for the most points, the winner is the player with the most essence points in their pool, and Gold essences count double.
+
+> "if tied, the tied player with most essences in their pool wins; each Gold in pool counts as 2 essences."
+> — Res Arcana Rules, p. 12
+
+ID: res-arcana-009
+Question:
+I've already passed this round. Later in the same round can I still use a power on one of my straightened components?
+Quote failure
+Expected quote(s):
+  - that player cannot do more actions that round
+Answer:
+No, once you have passed, you are unable to take any further actions in that round, including using a power.
+
+> "A player who has passed cannot do further actions that round and ignores all Life loss, but still gains any essences provided by rivals' powers."
+> — Glossary, p. 11
+
+ID: paleo-007
+Question:
+How do tool tokens work?
+Quote failure
+Expected quote(s):
+  - To use the ability on a tool token, you must discard it
+Answer:
+Tool tokens are tokens that represent objects like pelts or roots, and they can be used in several ways throughout the game. They are acquired when certain people join your group or through other mechanisms. You can use them to prevent wounds while they are happening, pay for certain actions, use their inherent ability (which requires discarding the token), or discard a specific token called a talisman to ignore a hazard card.
+
+> "Tool tokens represent objects you can craft from ideas, as well as certain other objects such as pelts and roots. Place the tool token next to your group. You can use the ability on the tool as soon as you gain it."
+> — Paleo Rules, p. 8
+
+Additionally, you are told that when a person joins your group, they may give you a tool token, which you keep even if the person is later removed from your group.
+
+> "Some people give you a tool token when they join your group. When this person joins your group, take a matching tool token and keep it next to your group. You gain this token **only once**, when the person joins your group."
+> — Paleo Rules, p. 5

@@ -2525,6 +2525,7 @@ dependencies = [
  "thiserror",
  "tiktoken-rs",
  "toml",
+ "tracing",
 ]
 
 [[package]]

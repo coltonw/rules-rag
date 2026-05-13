@@ -6,6 +6,7 @@ use eval::{
     RetrievalOutcome,
 };
 use generate::OllamaGenerator;
+use ingest::ParagraphChunker;
 use ingest::manifest::DocMeta;
 use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
 use pipeline::{FullContextPipeline, NaivePipeline};
@@ -93,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
 
     let table_name = match cli.chunker {
         Chunker::Fixed51264 => "chunks_fixed_512_64", // default
-        Chunker::Paragraph => todo!("Implement paragraph chunker"), // "chunker_paragraph"
+        Chunker::Paragraph => "chunks_paragraph",
     };
 
     let embedder = OllamaEmbedder::new();
@@ -102,10 +103,6 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Command::Ingest { paths, game } => {
             let manifest = read_manifest(Path::new("./data/pdfs/manifest.toml"))?;
-            let chunker = FixedSizeChunker {
-                size: 512,
-                overlap: 64,
-            };
             let to_ingest: Vec<DocMeta> = if paths.is_empty() {
                 manifest
             } else {
@@ -135,9 +132,26 @@ async fn main() -> anyhow::Result<()> {
                     .collect::<anyhow::Result<Vec<_>>>()?
             };
             for doc_meta in &to_ingest {
-                let raw_chunks = chunker
-                    .chunk(&doc_meta.file)
-                    .with_context(|| format!("chunking {}", &doc_meta.file.display()))?;
+                let raw_chunks = match cli.chunker {
+                    Chunker::Fixed51264 => {
+                        let chunker = FixedSizeChunker {
+                            size: 512,
+                            overlap: 64,
+                        };
+                        chunker
+                            .chunk(&doc_meta.file)
+                            .with_context(|| format!("chunking {}", &doc_meta.file.display()))?
+                    } // default
+                    Chunker::Paragraph => {
+                        let chunker = ParagraphChunker {
+                            target_size: 400,
+                            max_size: 512,
+                        };
+                        chunker
+                            .chunk(&doc_meta.file)
+                            .with_context(|| format!("chunking {}", &doc_meta.file.display()))?
+                    }
+                };
 
                 let to_embed: Vec<&str> =
                     raw_chunks.iter().map(|chunk| chunk.text.as_str()).collect();
