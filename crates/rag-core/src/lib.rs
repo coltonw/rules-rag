@@ -48,13 +48,19 @@ pub struct QueryOptions {
     pub game_filter: Option<String>,
 }
 
-pub trait VectorStore: Sized {
+pub trait Store: Sized {
     type Error: std::error::Error + Send + Sync + 'static;
     async fn connect(path: &Path, table_name: &str) -> Result<Self, Self::Error>;
     async fn insert(&self, chunks: &[Chunk]) -> Result<(), Self::Error>;
-    async fn query(
+    async fn update_indices(&self) -> Result<(), Self::Error>;
+    async fn query_vector(
         &self,
         embedding: &[f32],
+        options: &QueryOptions,
+    ) -> Result<Vec<RetrievalResult>, Self::Error>;
+    async fn query_fts(
+        &self,
+        text: &str,
         options: &QueryOptions,
     ) -> Result<Vec<RetrievalResult>, Self::Error>;
 }
@@ -62,8 +68,8 @@ pub trait VectorStore: Sized {
 pub trait Embedder {
     type Error: std::error::Error + Send + Sync + 'static;
     fn new() -> Self;
-    async fn generate(&self, inputs: &[impl AsRef<str>]) -> Result<Vec<Vec<f32>>, Self::Error>;
-    async fn generate_one(&self, input: &str) -> Result<Vec<f32>, Self::Error>;
+    async fn embed(&self, inputs: &[impl AsRef<str>]) -> Result<Vec<Vec<f32>>, Self::Error>;
+    async fn embed_one(&self, input: &str) -> Result<Vec<f32>, Self::Error>;
 }
 
 pub trait Generator: Sized {
@@ -76,7 +82,7 @@ pub trait Generator: Sized {
     ) -> Result<String, Self::Error>;
 }
 
-pub trait Retriever {
+pub trait Retrieve {
     type Error: std::error::Error + Send + Sync + 'static;
     async fn retrieve(
         &self,

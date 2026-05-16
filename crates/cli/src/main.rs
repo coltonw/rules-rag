@@ -10,8 +10,8 @@ use ingest::ParagraphChunker;
 use ingest::manifest::DocMeta;
 use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
 use pipeline::{FullContextPipeline, NaivePipeline};
-use rag_core::{Chunk, Embedder as _, Generator as _, Pipeline, QueryOptions, VectorStore as _};
-use retrieve::FixedChunkRetriever;
+use rag_core::{Chunk, Embedder as _, Generator as _, Pipeline, QueryOptions, Store as _};
+use retrieve::{DenseRetriever, Retriever, SparseRetriever};
 use std::path::Path;
 use std::path::PathBuf;
 use store::LanceStore;
@@ -52,7 +52,10 @@ enum Command {
         #[arg(long)]
         no_game_filter: bool,
 
-        #[arg(short = 'p', long, value_enum, global = true, default_value_t = PipelineOption::Naive)]
+        #[arg(long, value_enum, default_value_t = RetrieverKind::Dense)]
+        retriever: RetrieverKind,
+
+        #[arg(short = 'p', long, value_enum, default_value_t = PipelineOption::Naive)]
         pipeline: PipelineOption,
 
         /// Only run evals that match one of the comma separated tags
@@ -71,6 +74,14 @@ enum Chunker {
     Fixed51264,
     #[value(alias = "p")]
     Paragraph,
+}
+
+#[derive(Copy, Clone, clap::ValueEnum)]
+enum RetrieverKind {
+    #[value(alias = "d")]
+    Dense,
+    #[value(alias = "s")]
+    Sparse,
 }
 
 #[derive(Copy, Clone, clap::ValueEnum)]
@@ -157,7 +168,7 @@ async fn main() -> anyhow::Result<()> {
                 let to_embed: Vec<&str> =
                     raw_chunks.iter().map(|chunk| chunk.text.as_str()).collect();
                 let embeddings = embedder
-                    .generate(&to_embed)
+                    .embed(&to_embed)
                     .await
                     .with_context(|| format!("embedding {}", &doc_meta.file.display()))?;
                 let mut chunks: Vec<Chunk> = Vec::new();
@@ -176,10 +187,14 @@ async fn main() -> anyhow::Result<()> {
                     .await
                     .with_context(|| format!("inserting {}", &doc_meta.file.display()))?;
             }
+            store
+                .update_indices()
+                .await
+                .with_context(|| "updating indices")?;
             println!("{} rulebooks ingested", to_ingest.len());
         }
         Command::Ask { question } => {
-            let retriever = FixedChunkRetriever::new(store, embedder);
+            let retriever = Retriever::Dense(DenseRetriever::new(store, embedder));
             let generator = OllamaGenerator::new();
             let pipeline = NaivePipeline::new(retriever, generator);
 
@@ -197,6 +212,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Eval {
             retrieval_only,
             no_game_filter,
+            retriever: retriever_kind,
             pipeline,
             only,
             limit,
@@ -208,7 +224,10 @@ async fn main() -> anyhow::Result<()> {
                 ));
             }
             let apply_game_filter = !no_game_filter;
-            let retriever = FixedChunkRetriever::new(store, embedder);
+            let retriever = match retriever_kind {
+                RetrieverKind::Dense => Retriever::Dense(DenseRetriever::new(store, embedder)),
+                RetrieverKind::Sparse => Retriever::Sparse(SparseRetriever::new(store)),
+            };
             if retrieval_only {
                 let evaluator = RetrievalEvaluator::new(retriever, apply_game_filter, only, limit);
                 let evaluation = evaluator.run().await?;

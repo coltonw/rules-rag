@@ -45,7 +45,7 @@ impl Embedder for OllamaEmbedder {
         }
     }
 
-    async fn generate(&self, inputs: &[impl AsRef<str>]) -> Result<Vec<Vec<f32>>, EmbedError> {
+    async fn embed(&self, inputs: &[impl AsRef<str>]) -> Result<Vec<Vec<f32>>, EmbedError> {
         let inputs: Vec<&str> = inputs.iter().map(AsRef::as_ref).collect();
         let resp: EmbedResponse = self
             .client
@@ -87,9 +87,9 @@ impl Embedder for OllamaEmbedder {
         Ok(resp.embeddings)
     }
 
-    async fn generate_one(&self, input: &str) -> Result<Vec<f32>, EmbedError> {
+    async fn embed_one(&self, input: &str) -> Result<Vec<f32>, EmbedError> {
         Ok(self
-            .generate(&[input.to_string()])
+            .embed(&[input.to_string()])
             .await?
             .pop()
             .expect("There should always be an embed result"))
@@ -104,7 +104,7 @@ mod tests {
     #[tokio::test]
     async fn generate_one_embed() {
         let embedder = OllamaEmbedder::new();
-        let embed = embedder.generate_one("Hello").await.unwrap();
+        let embed = embedder.embed_one("Hello").await.unwrap();
         assert_eq!(embed.len(), 1024);
     }
 }

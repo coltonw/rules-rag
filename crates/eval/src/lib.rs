@@ -1,5 +1,5 @@
 use futures::stream::{self, StreamExt};
-use rag_core::{Answer, Pipeline, QueryOptions, RetrievalResult, Retriever};
+use rag_core::{Answer, Pipeline, QueryOptions, RetrievalResult, Retrieve};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::read_to_string,
@@ -386,14 +386,14 @@ impl<P: Pipeline> PipelineEvaluator<P> {
     }
 }
 
-pub struct RetrievalEvaluator<R: Retriever> {
+pub struct RetrievalEvaluator<R: Retrieve> {
     retriever: R,
     apply_game_filter: bool,
     tag_filters: Vec<String>,
     limit: Option<usize>,
 }
 
-impl<R: Retriever> RetrievalEvaluator<R> {
+impl<R: Retrieve> RetrievalEvaluator<R> {
     pub fn new(
         retriever: R,
         apply_game_filter: bool,

@@ -4,9 +4,11 @@ use std::sync::Arc;
 use arrow_array::{Array, Float32Array, RecordBatch};
 use arrow_schema::{DataType, Field, FieldRef, Schema};
 use futures::TryStreamExt as _;
-use lancedb::query::{ExecutableQuery as _, QueryBase as _};
+use lancedb::index::scalar::{FtsIndexBuilder, FullTextSearchQuery};
+use lancedb::index::{Index, IndexType};
+use lancedb::query::{ExecutableQuery, QueryBase};
 use lancedb::{DistanceType, Table, connect};
-use rag_core::{Chunk, EMBED_DIM, QueryOptions, RetrievalResult, VectorStore};
+use rag_core::{Chunk, EMBED_DIM, QueryOptions, RetrievalResult, Store};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
 use serde_arrow::{from_record_batch, to_record_batch};
 
@@ -31,43 +33,6 @@ pub enum StoreError {
 pub struct LanceStore {
     table: Table,
     schema: Arc<Schema>,
-}
-
-fn col_as<'a, T: 'static>(batch: &'a RecordBatch, name: &str) -> &'a T {
-    batch
-        .column_by_name(name)
-        .unwrap_or_else(|| panic!("query result missing column '{name}'"))
-        .as_any()
-        .downcast_ref::<T>()
-        .unwrap_or_else(|| panic!("query result column '{name}' has wrong Arrow type"))
-}
-
-fn records_to_results(batches: Vec<RecordBatch>) -> Vec<RetrievalResult> {
-    let mut results: Vec<RetrievalResult> = Vec::new();
-
-    for batch in batches {
-        let embedding_index = batch
-            .schema()
-            .index_of("embedding")
-            .expect("embedding column missing");
-        let trimmed_indices: Vec<usize> = (0..batch.num_columns())
-            .filter(|i| *i != embedding_index)
-            .collect();
-        let batch = batch
-            .project(&trimmed_indices)
-            .expect("batch projection should never fail");
-        let chunks = from_record_batch::<Vec<Chunk>>(&batch)
-            .expect("failed to deserialize records into chunks even after schema validation");
-        let distances: &Float32Array = col_as(&batch, "_distance");
-        for (i, chunk) in chunks.into_iter().enumerate() {
-            results.push(RetrievalResult {
-                chunk,
-                score: 1.0 - distances.value(i),
-            })
-        }
-    }
-
-    results
 }
 
 impl LanceStore {
@@ -105,7 +70,7 @@ impl LanceStore {
     }
 }
 
-impl VectorStore for LanceStore {
+impl Store for LanceStore {
     type Error = StoreError;
 
     async fn connect(path: &Path, table_name: &str) -> Result<Self, StoreError> {
@@ -119,7 +84,25 @@ impl VectorStore for LanceStore {
         let schema = Self::schema();
 
         let table = match connection.open_table(table_name).execute().await {
-            Ok(table) => table,
+            Ok(table) => {
+                // We want to add the index to tables that already exist in case they were made before this index was first added
+                let indices = table.list_indices().await.map_err(|e| StoreError::Lance {
+                    op: "list indices",
+                    source: e,
+                })?;
+                let has_fts = indices.iter().any(|idx| idx.index_type == IndexType::FTS);
+                if !has_fts {
+                    table
+                        .create_index(&["text"], Index::FTS(FtsIndexBuilder::default()))
+                        .execute()
+                        .await
+                        .map_err(|e| StoreError::Lance {
+                            op: "create index",
+                            source: e,
+                        })?;
+                }
+                table
+            }
             Err(lancedb::Error::TableNotFound { .. }) => connection
                 .create_empty_table(table_name, schema.clone())
                 .execute()
@@ -136,6 +119,7 @@ impl VectorStore for LanceStore {
             }
         };
 
+        // Check that table has the correct Schema
         let table_schema = table.schema().await.map_err(|e| StoreError::Lance {
             op: "read table schema",
             source: e,
@@ -163,7 +147,20 @@ impl VectorStore for LanceStore {
         Ok(())
     }
 
-    async fn query(
+    async fn update_indices(&self) -> Result<(), StoreError> {
+        self.table
+            .create_index(&["text"], Index::FTS(FtsIndexBuilder::default()))
+            .execute()
+            .await
+            .map_err(|e| StoreError::Lance {
+                op: "create index on insert",
+                source: e,
+            })?;
+
+        Ok(())
+    }
+
+    async fn query_vector(
         &self,
         embedding: &[f32],
         options: &QueryOptions,
@@ -178,24 +175,114 @@ impl VectorStore for LanceStore {
             })?
             .distance_type(DistanceType::Cosine)
             .limit(options.top_k);
-        let query = if let Some(game) = &options.game_filter {
-            query.only_if(format!("game = '{}'", game.replace('\'', "''")))
-        } else {
-            query
-        };
-        let results = query.execute().await.map_err(|e| StoreError::Lance {
-            op: "execute query",
-            source: e,
-        })?;
 
-        let batches: Vec<RecordBatch> =
-            results.try_collect().await.map_err(|e| StoreError::Lance {
-                op: "collect query results",
-                source: e,
-            })?;
+        let batches = filter_and_execute_helper(query, options).await?;
 
-        Ok(records_to_results(batches))
+        Ok(records_to_results_vector(batches))
     }
+
+    async fn query_fts(
+        &self,
+        text: &str,
+        options: &QueryOptions,
+    ) -> Result<Vec<RetrievalResult>, StoreError> {
+        let query = self
+            .table
+            .query()
+            .full_text_search(FullTextSearchQuery::new(text.to_string()))
+            .limit(options.top_k);
+
+        let batches = filter_and_execute_helper(query, options).await?;
+
+        Ok(records_to_results_fts(batches))
+    }
+}
+
+fn col_as<'a, T: 'static>(batch: &'a RecordBatch, name: &str) -> &'a T {
+    batch
+        .column_by_name(name)
+        .unwrap_or_else(|| panic!("query result missing column '{name}'"))
+        .as_any()
+        .downcast_ref::<T>()
+        .unwrap_or_else(|| panic!("query result column '{name}' has wrong Arrow type"))
+}
+
+fn records_to_results_vector(batches: Vec<RecordBatch>) -> Vec<RetrievalResult> {
+    let mut results: Vec<RetrievalResult> = Vec::new();
+
+    for batch in batches {
+        let embedding_index = batch
+            .schema()
+            .index_of("embedding")
+            .expect("embedding column missing");
+        let trimmed_indices: Vec<usize> = (0..batch.num_columns())
+            .filter(|i| *i != embedding_index)
+            .collect();
+        let batch = batch
+            .project(&trimmed_indices)
+            .expect("batch projection should never fail");
+        let chunks = from_record_batch::<Vec<Chunk>>(&batch)
+            .expect("failed to deserialize records into chunks even after schema validation");
+        let distances: &Float32Array = col_as(&batch, "_distance");
+        for (i, chunk) in chunks.into_iter().enumerate() {
+            results.push(RetrievalResult {
+                chunk,
+                score: 1.0 - distances.value(i),
+            })
+        }
+    }
+
+    results
+}
+
+fn records_to_results_fts(batches: Vec<RecordBatch>) -> Vec<RetrievalResult> {
+    let mut results: Vec<RetrievalResult> = Vec::new();
+
+    for batch in batches {
+        let embedding_index = batch
+            .schema()
+            .index_of("embedding")
+            .expect("embedding column missing");
+        let trimmed_indices: Vec<usize> = (0..batch.num_columns())
+            .filter(|i| *i != embedding_index)
+            .collect();
+        let batch = batch
+            .project(&trimmed_indices)
+            .expect("batch projection should never fail");
+        let chunks = from_record_batch::<Vec<Chunk>>(&batch)
+            .expect("failed to deserialize records into chunks even after schema validation");
+        let scores: &Float32Array = col_as(&batch, "_score");
+        for (i, chunk) in chunks.into_iter().enumerate() {
+            results.push(RetrievalResult {
+                chunk,
+                score: scores.value(i),
+            })
+        }
+    }
+
+    results
+}
+
+async fn filter_and_execute_helper<Q: QueryBase + ExecutableQuery>(
+    query: Q,
+    options: &QueryOptions,
+) -> Result<Vec<RecordBatch>, StoreError> {
+    let query = if let Some(game) = &options.game_filter {
+        query.only_if(format!("game = '{}'", game.replace('\'', "''")))
+    } else {
+        query
+    };
+    let results = query.execute().await.map_err(|e| StoreError::Lance {
+        op: "execute query",
+        source: e,
+    })?;
+
+    let batches: Vec<RecordBatch> = results.try_collect().await.map_err(|e| StoreError::Lance {
+        op: "collect query results",
+        source: e,
+    })?;
+
+    Ok(batches)
 }
 
 #[cfg(test)]
@@ -251,9 +338,10 @@ mod tests {
             },
         ];
         store.insert(&chunks).await.unwrap();
+        store.update_indices().await.unwrap();
 
         let results = store
-            .query(
+            .query_vector(
                 &unit_embedding(0),
                 &QueryOptions {
                     top_k: 10,
@@ -292,6 +380,25 @@ mod tests {
         assert!(matches!(by_id["ref-1"].doc_type, DocType::Reference));
         assert!(matches!(by_id["faq-1"].doc_type, DocType::Faq));
         assert_eq!(by_id["ref-1"].page, None);
+
+        // now full text search
+        let results = store
+            .query_fts(
+                "faq text",
+                &QueryOptions {
+                    top_k: 10,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        let top = &results[0].chunk;
+        assert_eq!(top.text, "faq text");
+        assert_eq!(top.game, "Pandemic");
+        assert!(matches!(top.doc_type, DocType::Faq));
+        assert_eq!(top.page, Some(7));
+        assert!(top.embedding.is_none(), "embedding should not exist in fts");
     }
 
     #[tokio::test]
@@ -315,7 +422,7 @@ mod tests {
 
         let store = LanceStore::connect(dir.path(), "test").await.unwrap();
         let results = store
-            .query(
+            .query_vector(
                 &unit_embedding(0),
                 &QueryOptions {
                     top_k: 1,
@@ -362,7 +469,7 @@ mod tests {
         store.insert(&chunks).await.unwrap();
 
         let unfiltered = store
-            .query(
+            .query_vector(
                 &unit_embedding(0),
                 &QueryOptions {
                     top_k: 10,
@@ -374,7 +481,7 @@ mod tests {
         assert_eq!(unfiltered.len(), 3, "no filter should return all chunks");
 
         let pandemic = store
-            .query(
+            .query_vector(
                 &unit_embedding(0),
                 &QueryOptions {
                     top_k: 10,
@@ -387,7 +494,7 @@ mod tests {
         assert_eq!(pandemic[0].chunk.id, "pandemic-1");
 
         let catan = store
-            .query(
+            .query_vector(
                 &unit_embedding(0),
                 &QueryOptions {
                     top_k: 10,
@@ -400,7 +507,7 @@ mod tests {
         assert_eq!(catan[0].chunk.id, "catan-1");
 
         let apostrophe = store
-            .query(
+            .query_vector(
                 &unit_embedding(0),
                 &QueryOptions {
                     top_k: 10,
@@ -417,7 +524,7 @@ mod tests {
         assert_eq!(apostrophe[0].chunk.id, "obrien-1");
 
         let missing = store
-            .query(
+            .query_vector(
                 &unit_embedding(0),
                 &QueryOptions {
                     top_k: 10,

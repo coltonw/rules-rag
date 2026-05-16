@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use generate::OllamaGenerator;
 use ingest::manifest::read_manifest;
-use rag_core::{Chunk, Generator, Pipeline, QueryOptions, RetrievalResult, Retriever as _};
-use retrieve::FixedChunkRetriever;
+use rag_core::{Chunk, Generator, Pipeline, QueryOptions, RetrievalResult, Retrieve as _};
+use retrieve::Retriever;
 use std::fs::read_to_string;
 
 #[derive(thiserror::Error, Debug)]
@@ -24,12 +24,12 @@ pub enum PipelineError {
 }
 
 pub struct NaivePipeline {
-    retriever: FixedChunkRetriever,
+    retriever: Retriever,
     generator: OllamaGenerator,
 }
 
 impl NaivePipeline {
-    pub fn new(retriever: FixedChunkRetriever, generator: OllamaGenerator) -> Self {
+    pub fn new(retriever: Retriever, generator: OllamaGenerator) -> Self {
         Self {
             retriever,
             generator,
