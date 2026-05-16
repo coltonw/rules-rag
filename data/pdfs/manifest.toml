@@ -1,6 +1,166 @@
 [[document]]
-file = "./data/pdfs/pandemic.txt"
-game = "Pandemic"
+file = "./data/pdfs/7-wonders-rulebook.txt"
+game = "7 Wonders"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/7-wonders-duel-rulebook.txt"
+game = "7 Wonders Duel"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/a-feast-for-odin-rulebook.txt"
+game = "A Feast for Odin"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/a-game-of-thrones-the-board-game-second-edition-rulebook.txt"
+game = "A Game of Thrones: The Board Game (Second Edition)"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/abracada-what-rulebook.txt"
+game = "Abracada...What?"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/acquire-rulebook.txt"
+game = "Acquire"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/airlines-europe-rulebook.txt"
+game = "Airlines Europe"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/amun-re-rulebook.txt"
+game = "Amun-Re"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/android-netrunner-rulebook.txt"
+game = "Android: Netrunner"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/ark-nova-rulebook.txt"
+game = "Ark Nova"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/arkham-horror-the-card-game-rulebook.txt"
+game = "Arkham Horror: The Card Game"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/azul-stained-glass-of-sintra-rulebook.txt"
+game = "Azul: Stained Glass of Sintra"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/bananagrams-rulebook.txt"
+game = "Bananagrams"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/barrage-rulebook.txt"
+game = "Barrage"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/bellz-rulebook.txt"
+game = "Bellz!"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/betrayal-at-house-on-the-hill-rulebook.txt"
+game = "Betrayal at House on the Hill"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/biblios-rulebook.txt"
+game = "Biblios"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/blood-rage-rulebook.txt"
+game = "Blood Rage"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/bohnanza-rulebook.txt"
+game = "Bohnanza"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/bomb-busters-rulebook.txt"
+game = "Bomb Busters"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/brass-birmingham-rulebook.txt"
+game = "Brass: Birmingham"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/break-the-code-rulebook.txt"
+game = "Break the Code"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/bruges-rulebook.txt"
+game = "Bruges"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/burger-joint-rulebook.txt"
+game = "Burger Joint"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/calico-rulebook.txt"
+game = "Calico"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/call-to-adventure-rulebook.txt"
+game = "Call to Adventure"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/candy-land-rulebook.txt"
+game = "Candy Land"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/captain-sonar-rulebook.txt"
+game = "Captain Sonar"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/carnival-of-monsters-rulebook.txt"
+game = "Carnival of Monsters"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/cartographers-rulebook.txt"
+game = "Cartographers"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/cat-in-the-box-deluxe-edition-rulebook.txt"
+game = "Cat in the Box: Deluxe Edition"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/catan-rulebook.txt"
+game = "Catan"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/century-spice-road-rulebook.txt"
+game = "Century: Spice Road"
 doc_type = "rules"
 
 [[document]]
@@ -9,18 +169,593 @@ game = "Challengers!"
 doc_type = "rules"
 
 [[document]]
-file = "./data/pdfs/the-quacks-of-quedlinburg-rulebook.txt"
-game = "The Quacks of Quedlinberg"
+file = "./data/pdfs/chaos-in-the-old-world-rulebook.txt"
+game = "Chaos in the Old World"
 doc_type = "rules"
 
 [[document]]
-file = "./data/pdfs/mage-knight-rulebook.txt"
+file = "./data/pdfs/chronicles-of-crime-2400-rulebook.txt"
+game = "Chronicles of Crime: 2400"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/citadels-rulebook.txt"
+game = "Citadels"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/clank-in-space-a-deck-building-adventure-rulebook.txt"
+game = "Clank! In! Space!: A Deck-Building Adventure"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/clank-legacy-acquisitions-incorporated-rulebook.txt"
+game = "Clank! Legacy: Acquisitions Incorporated"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/codenames-rulebook.txt"
+game = "Codenames"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/codenames-pictures-rulebook.txt"
+game = "Codenames: Pictures"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/concept-rulebook.txt"
+game = "Concept"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/concordia-rulebook.txt"
+game = "Concordia"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/cosmic-encounter-rulebook.txt"
+game = "Cosmic Encounter"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/cottage-garden-rulebook.txt"
+game = "Cottage Garden"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/count-your-chickens-rulebook.txt"
+game = "Count Your Chickens!"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/couture-rulebook.txt"
+game = "Couture"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/cryptid-rulebook.txt"
+game = "Cryptid"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/cubitos-rulebook.txt"
+game = "Cubitos"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/cyclades-rulebook.txt"
+game = "Cyclades"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/decrypto-rulebook.txt"
+game = "Decrypto"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/dice-realms-rulebook.txt"
+game = "Dice Realms"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/disney-lorcana-rulebook.txt"
+game = "Disney Lorcana"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/dixit-rulebook.txt"
+game = "Dixit"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/dominion-rulebook.txt"
+game = "Dominion"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/dominion-intrigue-rulebook.txt"
+game = "Dominion: Intrigue"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/dragomino-rulebook.txt"
+game = "Dragomino"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/dune-imperium-rulebook.txt"
+game = "Dune: Imperium"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/décorum-rulebook.txt"
+game = "Décorum"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/eclipse-new-dawn-for-the-galaxy-rulebook.txt"
+game = "Eclipse: New Dawn for the Galaxy"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/etherstone-rulebook.txt"
+game = "Etherstone"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/exit-the-game-kids-jungle-of-riddles-rulebook.txt"
+game = "EXIT: The Game – Kids: Jungle of Riddles"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/fairy-ring-rulebook.txt"
+game = "Fairy Ring"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/faiyum-rulebook.txt"
+game = "Faiyum"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/famiglia-rulebook.txt"
+game = "Famiglia"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/first-class-all-aboard-the-orient-express-rulebook.txt"
+game = "First Class: All Aboard the Orient Express!"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/five-tribes-the-djinns-of-naqala-rulebook.txt"
+game = "Five Tribes: The Djinns of Naqala"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/fives-rulebook.txt"
+game = "Fives"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/flatline-rulebook.txt"
+game = "Flatline"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/flesh-and-blood-rulebook.txt"
+game = "Flesh and Blood"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/fold-it-rulebook.txt"
+game = "Fold-it"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/food-chain-magnate-rulebook.txt"
+game = "Food Chain Magnate"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/fool-rulebook.txt"
+game = "Fool!"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/for-sale-rulebook.txt"
+game = "For Sale"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/forbidden-desert-rulebook.txt"
+game = "Forbidden Desert"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/forbidden-island-rulebook.txt"
+game = "Forbidden Island"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/forbidden-jungle-rulebook.txt"
+game = "Forbidden Jungle"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/forgotten-waters-rulebook.txt"
+game = "Forgotten Waters"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/freelancers-a-crossroads-game-rulebook.txt"
+game = "Freelancers: A Crossroads Game"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/fresh-fish-rulebook.txt"
+game = "Fresh Fish"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/friday-rulebook.txt"
+game = "Friday"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/fuji-rulebook.txt"
+game = "Fuji"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/galaxy-trucker-rulebook.txt"
+game = "Galaxy Trucker"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/genoa-rulebook.txt"
+game = "Genoa"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/ginkgopolis-rulebook.txt"
+game = "Ginkgopolis"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/glass-road-rulebook.txt"
+game = "Glass Road"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/gloom-rulebook.txt"
+game = "Gloom"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/go-away-monster-rulebook.txt"
+game = "Go Away Monster!"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/go-nuts-for-donuts-rulebook.txt"
+game = "Go Nuts for Donuts"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/gold-west-rulebook.txt"
+game = "Gold West"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/great-western-trail-rulebook.txt"
+game = "Great Western Trail"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/hadrians-wall-rulebook.txt"
+game = "Hadrian's Wall"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/hallertau-rulebook.txt"
+game = "Hallertau"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/hansa-teutonica-rulebook.txt"
+game = "Hansa Teutonica"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/harmonies-rulebook.txt"
+game = "Harmonies"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/hawaii-rulebook.txt"
+game = "Hawaii"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/hooky-rulebook.txt"
+game = "Hooky"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/hungry-hungry-hippos-rulebook.txt"
+game = "Hungry Hungry Hippos"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/in-the-footsteps-of-darwin-rulebook.txt"
+game = "In the Footsteps of Darwin"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/indian-summer-rulebook.txt"
+game = "Indian Summer"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/jambo-rulebook.txt"
+game = "Jambo"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/jungle-speed-rulebook.txt"
+game = "Jungle Speed"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/just-one-rulebook.txt"
+game = "Just One"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/kemet-rulebook.txt"
+game = "Kemet"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/keyflower-rulebook.txt"
+game = "Keyflower"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/keyforge-call-of-the-archons-rulebook.txt"
+game = "KeyForge: Call of the Archons"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/kids-chronicles-quest-for-the-moon-stones-rulebook.txt"
+game = "Kids Chronicles: Quest for the Moon Stones"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/king-of-tokyo-rulebook.txt"
+game = "King of Tokyo"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/kingdom-builder-big-box-second-edition-rulebook.txt"
+game = "Kingdom Builder: Big Box (Second Edition)"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/kingsburg-rulebook.txt"
+game = "Kingsburg"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/kuzooka-rulebook.txt"
+game = "KuZOOkA"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/la-granja-rulebook.txt"
+game = "La Granja"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/lancaster-rulebook.txt"
+game = "Lancaster"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/legacy-of-dragonholt-rulebook.txt"
+game = "Legacy of Dragonholt"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/legend-of-the-five-rings-the-card-game-rulebook.txt"
+game = "Legend of the Five Rings: The Card Game"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/letter-jam-rulebook.txt"
+game = "Letter Jam"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/lewis-clark-the-expedition-rulebook.txt"
+game = "Lewis & Clark: The Expedition"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/lords-of-waterdeep-rulebook.txt"
+game = "Lords of Waterdeep"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/lost-cities-rulebook.txt"
+game = "Lost Cities"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/lost-ruins-of-arnak-rulebook.txt"
+game = "Lost Ruins of Arnak"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/love-letter-rulebook.txt"
+game = "Love Letter"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/luthier-rulebook.txt"
+game = "Luthier"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/machi-koro-rulebook.txt"
+game = "Machi Koro"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/mage-knight-board-game-rulebook.txt"
 game = "Mage Knight Board Game"
 doc_type = "rules"
 
 [[document]]
-file = "./data/pdfs/spirit-island-rulebook.txt"
-game = "Spirit Island"
+file = "./data/pdfs/magic-maze-rulebook.txt"
+game = "Magic Maze"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/magic-the-gathering-rulebook.txt"
+game = "Magic: The Gathering"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/mansions-of-madness-second-edition-rulebook.txt"
+game = "Mansions of Madness: Second Edition"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/maracaibo-rulebook.txt"
+game = "Maracaibo"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/marvel-champions-the-card-game-rulebook.txt"
+game = "Marvel Champions: The Card Game"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/masterpiece-rulebook.txt"
+game = "Masterpiece"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/masters-of-renaissance-lorenzo-il-magnifico-the-card-game-rulebook.txt"
+game = "Masters of Renaissance: Lorenzo il Magnifico – The Card Game"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/meadow-rulebook.txt"
+game = "Meadow"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/merchants-cove-rulebook.txt"
+game = "Merchants Cove"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/micro-robots-rulebook.txt"
+game = "Micro Robots"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/micromacro-crime-city-rulebook.txt"
+game = "MicroMacro: Crime City"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/mission-red-planet-rulebook.txt"
+game = "Mission: Red Planet"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/modern-art-rulebook.txt"
+game = "Modern Art"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/monikers-rulebook.txt"
+game = "Monikers"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/monopoly-deal-card-game-rulebook.txt"
+game = "Monopoly Deal Card Game"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/mosaic-a-story-of-civilization-rulebook.txt"
+game = "Mosaic: A Story of Civilization"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/mr-jack-pocket-rulebook.txt"
+game = "Mr. Jack Pocket"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/munchkin-rulebook.txt"
+game = "Munchkin"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/my-city-rulebook.txt"
+game = "My City"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/mysterium-rulebook.txt"
+game = "Mysterium"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/mystery-of-the-abbey-rulebook.txt"
+game = "Mystery of the Abbey"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/mü-and-lots-more-rulebook.txt"
+game = "Mü and Lots More"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/nmbr-9-rulebook.txt"
+game = "NMBR 9"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/noobs-in-space-rulebook.txt"
+game = "Noobs in Space"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/onirim-second-edition-rulebook.txt"
+game = "Onirim (Second Edition)"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/orléans-rulebook.txt"
+game = "Orléans"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/othello-rulebook.txt"
+game = "Othello"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/pairs-rulebook.txt"
+game = "Pairs"
 doc_type = "rules"
 
 [[document]]
@@ -29,11 +764,496 @@ game = "Paleo"
 doc_type = "rules"
 
 [[document]]
-file = "./data/pdfs/stone-age-rulebook.txt"
-game = "Stone Age"
+file = "./data/pdfs/pandemic.txt"
+game = "Pandemic"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/pandemic-legacy-season-1-rulebook.txt"
+game = "Pandemic Legacy: Season 1"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/pandemic-hot-zone-north-america-rulebook.txt"
+game = "Pandemic: Hot Zone – North America"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/pick-omino-rulebook.txt"
+game = "Pick-omino"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/pokémon-trading-card-game-rulebook.txt"
+game = "Pokémon Trading Card Game"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/potion-explosion-rulebook.txt"
+game = "Potion Explosion"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/power-grid-rulebook.txt"
+game = "Power Grid"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/power-grid-factory-manager-rulebook.txt"
+game = "Power Grid: Factory Manager"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/power-grid-the-first-sparks-rulebook.txt"
+game = "Power Grid: The First Sparks"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/quacks-co-quedlinburg-dash-rulebook.txt"
+game = "Quacks & Co.: Quedlinburg Dash"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/qwixx-rulebook.txt"
+game = "Qwixx"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/ra-rulebook.txt"
+game = "Ra"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/race-for-the-galaxy-rulebook.txt"
+game = "Race for the Galaxy"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/railroad-ink-deep-blue-edition-rulebook.txt"
+game = "Railroad Ink: Deep Blue Edition"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/railways-of-the-world-rulebook.txt"
+game = "Railways of the World"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/ready-set-bet-rulebook.txt"
+game = "Ready Set Bet"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/rear-window-rulebook.txt"
+game = "Rear Window"
 doc_type = "rules"
 
 [[document]]
 file = "./data/pdfs/res-arcana-rulebook.txt"
 game = "Res Arcana"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/return-to-dark-tower-rulebook.txt"
+game = "Return to Dark Tower"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/richard-scarrys-busytown-eye-found-it-game-rulebook.txt"
+game = "Richard Scarry's Busytown: Eye found it! Game"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/ricochet-robots-rulebook.txt"
+game = "Ricochet Robots"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/roll-for-the-galaxy-rulebook.txt"
+game = "Roll for the Galaxy"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/russian-railroads-rulebook.txt"
+game = "Russian Railroads"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/seas-of-strife-rulebook.txt"
+game = "Seas of Strife"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/seti-search-for-extraterrestrial-intelligence-rulebook.txt"
+game = "SETI: Search for Extraterrestrial Intelligence"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/sherlock-holmes-consulting-detective-the-thames-murders-other-cases-rulebook.txt"
+game = "Sherlock Holmes Consulting Detective: The Thames Murders & Other Cases"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/shogun-rulebook.txt"
+game = "Shogun"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/sidereal-confluence-rulebook.txt"
+game = "Sidereal Confluence"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/silly-shenanigans-rulebook.txt"
+game = "Silly Shenanigans"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/similo-rulebook.txt"
+game = "Similo"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/skymines-rulebook.txt"
+game = "Skymines"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/so-clover-rulebook.txt"
+game = "So Clover!"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/sorry-sliders-rulebook.txt"
+game = "Sorry! Sliders"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/space-hulk-death-angel-the-card-game-rulebook.txt"
+game = "Space Hulk: Death Angel – The Card Game"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/spectral-rulebook.txt"
+game = "Spectral"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/spirit-island-rulebook.txt"
+game = "Spirit Island"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/spot-it-rulebook.txt"
+game = "Spot it!"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/spyrium-rulebook.txt"
+game = "Spyrium"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/star-wars-the-deckbuilding-game-rulebook.txt"
+game = "Star Wars: The Deckbuilding Game"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/star-wars-unlimited-rulebook.txt"
+game = "Star Wars: Unlimited"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/stone-age-rulebook.txt"
+game = "Stone Age"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/strike-rulebook.txt"
+game = "Strike"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/sushi-go-party-rulebook.txt"
+game = "Sushi Go Party!"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/sushi-go-rulebook.txt"
+game = "Sushi Go!"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/take-5-rulebook.txt"
+game = "Take 5"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/take-it-easy-rulebook.txt"
+game = "Take it Easy!"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/take-time-rulebook.txt"
+game = "Take Time"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/tantrix-rulebook.txt"
+game = "Tantrix"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/telestrations-rulebook.txt"
+game = "Telestrations"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/terra-mystica-rulebook.txt"
+game = "Terra Mystica"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/thats-pretty-clever-rulebook.txt"
+game = "That's Pretty Clever!"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-art-project-rulebook.txt"
+game = "The A.R.T. Project"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-bloody-inn-rulebook.txt"
+game = "The Bloody Inn"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-castles-of-burgundy-rulebook.txt"
+game = "The Castles of Burgundy"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-castles-of-burgundy-the-card-game-rulebook.txt"
+game = "The Castles of Burgundy: The Card Game"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-crew-mission-deep-sea-rulebook.txt"
+game = "The Crew: Mission Deep Sea"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-crew-the-quest-for-planet-nine-rulebook.txt"
+game = "The Crew: The Quest for Planet Nine"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-fox-experiment-rulebook.txt"
+game = "The Fox Experiment"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-game-rulebook.txt"
+game = "The Game"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-gang-rulebook.txt"
+game = "The Gang"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-initiative-rulebook.txt"
+game = "The Initiative"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-kings-dilemma-rulebook.txt"
+game = "The King's Dilemma"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-lord-of-the-rings-the-fellowship-of-the-ring-trick-taking-game-rulebook.txt"
+game = "The Lord of the Rings: The Fellowship of the Ring – Trick-Taking Game"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-mind-rulebook.txt"
+game = "The Mind"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-pillars-of-the-earth-rulebook.txt"
+game = "The Pillars of the Earth"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-princes-of-florence-rulebook.txt"
+game = "The Princes of Florence"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-quacks-of-quedlinburg-rulebook.txt"
+game = "The Quacks of Quedlinburg"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-quest-for-el-dorado-rulebook.txt"
+game = "The Quest for El Dorado"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-red-cathedral-rulebook.txt"
+game = "The Red Cathedral"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-search-for-planet-x-rulebook.txt"
+game = "The Search for Planet X"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/the-voyages-of-marco-polo-rulebook.txt"
+game = "The Voyages of Marco Polo"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/things-in-rings-rulebook.txt"
+game = "Things in Rings"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/throw-throw-burrito-rulebook.txt"
+game = "Throw Throw Burrito"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/thunder-road-vendetta-rulebook.txt"
+game = "Thunder Road: Vendetta"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/ticket-to-ride-rulebook.txt"
+game = "Ticket to Ride"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/tiny-polka-dot-rulebook.txt"
+game = "Tiny Polka Dot"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/traders-of-osaka-rulebook.txt"
+game = "Traders of Osaka"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/trains-rulebook.txt"
+game = "Trains"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/trains-rising-sun-rulebook.txt"
+game = "Trains: Rising Sun"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/trinket-trove-rulebook.txt"
+game = "Trinket Trove"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/turing-machine-rulebook.txt"
+game = "Turing Machine"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/twice-as-clever-rulebook.txt"
+game = "Twice as Clever!"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/tzolkin-the-mayan-calendar-rulebook.txt"
+game = "Tzolk'in: The Mayan Calendar"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/unlock-kids-detective-stories-rulebook.txt"
+game = "Unlock! Kids: Detective Stories"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/vagrantsong-rulebook.txt"
+game = "Vagrantsong"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/vegas-showdown-rulebook.txt"
+game = "Vegas Showdown"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/villa-paletti-rulebook.txt"
+game = "Villa Paletti"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/village-rulebook.txt"
+game = "Village"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/warhammer-40000-conquest-rulebook.txt"
+game = "Warhammer 40,000: Conquest"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/wavelength-rulebook.txt"
+game = "Wavelength"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/welcome-to-the-moon-rulebook.txt"
+game = "Welcome to the Moon"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/welcome-to-rulebook.txt"
+game = "Welcome To..."
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/witness-rulebook.txt"
+game = "Witness"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/wits-wagers-rulebook.txt"
+game = "Wits & Wagers"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/world-without-end-rulebook.txt"
+game = "World Without End"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/worlds-fair-1893-rulebook.txt"
+game = "World's Fair 1893"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/yokai-septet-rulebook.txt"
+game = "Yokai Septet"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/yomi-rulebook.txt"
+game = "Yomi"
+doc_type = "rules"
+
+[[document]]
+file = "./data/pdfs/zoo-vadis-rulebook.txt"
+game = "Zoo Vadis"
 doc_type = "rules"

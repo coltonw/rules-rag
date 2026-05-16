@@ -2,5 +2,6 @@
 /data/pdfs/*
 !/data/pdfs/manifest.toml
 /data/lancedb/
+/data/misc/
 __pycache__
 /scripts/.venv/

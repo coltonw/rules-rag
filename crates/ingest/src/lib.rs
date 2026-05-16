@@ -63,9 +63,10 @@ impl FixedSizeChunker {
             // TODO: have chunks go through page boundaries
             let mut index = 0;
             while index < page.len() {
-                let text = tokenizer
-                    .decode(&page[index..(index + self.size).min(page.len())])
-                    .expect("Error decoding what I JUST encoded should never happen");
+                let bytes = tokenizer
+                    .decode_bytes(&page[index..(index + self.size).min(page.len())])
+                    .expect("token id from encode should always be in vocabulary");
+                let text = String::from_utf8_lossy(&bytes).into_owned();
                 // TODO: id should not be hardcoded
                 chunks.push(RawChunk {
                     text,
@@ -216,9 +217,10 @@ impl ParagraphChunker {
                 }
                 let token_ids = tokenizer.encode(&para_with_nl, allowed_specials).0;
                 for slice in token_ids.chunks(effective_max) {
-                    let decoded = tokenizer
-                        .decode(slice)
-                        .expect("decoding tokens we just encoded should not fail");
+                    let bytes = tokenizer
+                        .decode_bytes(slice)
+                        .expect("token id from encode should always be in vocabulary");
+                    let decoded = String::from_utf8_lossy(&bytes).into_owned();
                     let text = prefixed(decoded, sub_chunks.len());
                     sub_chunks.push(RawChunk {
                         text,
@@ -384,7 +386,11 @@ impl ParagraphChunker {
             &mut chunk_heading_level,
             &mut chunk_page,
         );
-        tracing::debug!(n_chunks = chunks.len(), n_sections = sections.len(), "packed");
+        tracing::debug!(
+            n_chunks = chunks.len(),
+            n_sections = sections.len(),
+            "packed"
+        );
         chunks
     }
 }
@@ -427,6 +433,19 @@ fn flush(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fixed_size_chunker_non_ascii_does_not_panic() {
+        // `٦` (U+0666 ARABIC-INDIC DIGIT SIX) encodes to 2 UTF-8 bytes (D9 A6).
+        // Tiktoken may represent it as two byte-level tokens; size=1 slices
+        // between them producing bytes that are not valid UTF-8 on their own.
+        let chunker = FixedSizeChunker { size: 1, overlap: 0 };
+        let text = "=== PAGE 1 ===\n٦٦٦\n";
+        let chunks = chunker.chunk_text(text); // must not panic
+        assert!(!chunks.is_empty());
+        let joined: String = chunks.iter().map(|c| c.text.as_str()).collect();
+        assert!(!joined.is_empty());
+    }
 
     #[test]
     fn lines_before_first_page_marker_are_dropped() {
@@ -847,10 +866,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         for i in 0..10 {
-            assert!(
-                all_text.contains(&format!("alpha{i}")),
-                "missing alpha{i}"
-            );
+            assert!(all_text.contains(&format!("alpha{i}")), "missing alpha{i}");
             assert!(all_text.contains(&format!("echo{i}")), "missing echo{i}");
         }
     }

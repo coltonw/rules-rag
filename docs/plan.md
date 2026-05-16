@@ -1,7 +1,7 @@
 # RAG plan
 
-Where we are: Phase 1 done (naive end-to-end), all Phases 1.x done (eval
-improvements). Phase 2 is up next.
+Where we are: Phase 1 done (naive end-to-end), all phases 1.x done (eval
+improvements), and phase 2.1 done. Phase 2.2 is up next.
 
 Conventions: each phase ends with re-running the eval so we can measure
 whether the new technique actually helped. Each subphase should be small
@@ -13,16 +13,6 @@ mechanical work for Claude; *(yours)* is the learning work.
 ## Phase 2 — Hybrid search + multi-game
 
 Better retrieval quality, scale to the whole collection.
-
-### 2.1 — Paragraph-aware chunker + full-collection ingest
-
-`ParagraphChunker` that respects paragraph boundaries, keeps section
-headers attached, and includes a `section_title` field in metadata.
-Rulebooks have structure — use it. Add as a new entry under the
-multi-table LanceDB layout from 1.3.2 so vs. fixed-size is a clean A/B.
-
-Ingest the full PDF collection. Adds the cross-game disambiguation
-pressure that 1.3.3's `--no-game-filter` mode measures.
 
 ### 2.2 — BM25 via LanceDB FTS
 
