@@ -3,6 +3,9 @@ name = "eval"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 futures = "0.3.32"
 pipeline = { path = "../pipeline" }

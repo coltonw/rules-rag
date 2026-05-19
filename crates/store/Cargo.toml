@@ -3,6 +3,9 @@ name = "store"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 arrow-array = "57.3.0"
 arrow-schema = { version = "57.3.0", features = ["serde"] }

@@ -37,7 +37,7 @@ impl Embedder for OllamaEmbedder {
     type Error = EmbedError;
     fn new() -> Self {
         let client = Client::new();
-        OllamaEmbedder {
+        Self {
             client,
             // TODO: cargo.config for stuff like this
             base_url: "http://localhost:11434".to_string(),

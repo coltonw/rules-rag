@@ -2,8 +2,8 @@ use anyhow::{Context, anyhow};
 use clap::{Parser, Subcommand};
 use embed::OllamaEmbedder;
 use eval::{
-    FullOutcome, GenerationMetrics, PipelineEvaluator, RetrievalEvaluator, RetrievalMetrics,
-    RetrievalOutcome,
+    FullEvaluation, FullOutcome, GenerationMetrics, PipelineEvaluator, RetrievalEvaluator,
+    RetrievalMetrics, RetrievalOutcome, RetrievalRatios,
 };
 use generate::OllamaGenerator;
 use ingest::ParagraphChunker;
@@ -12,6 +12,7 @@ use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
 use pipeline::{FullContextPipeline, NaivePipeline};
 use rag_core::{Chunk, Embedder as _, Generator as _, Pipeline, QueryOptions, Store as _};
 use retrieve::{DenseRetriever, Retriever, SparseRetriever};
+use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use store::LanceStore;
@@ -113,102 +114,9 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Command::Ingest { paths, game } => {
-            let manifest = read_manifest(Path::new("./data/pdfs/manifest.toml"))?;
-            let to_ingest: Vec<DocMeta> = if paths.is_empty() {
-                manifest
-            } else {
-                paths
-                    .into_iter()
-                    .map(|path| {
-                        let single_manifest = manifest.iter().find(|meta| meta.file == path);
-                        let game = game
-                            .as_ref()
-                            .or(single_manifest.map(|m| &m.game))
-                            .ok_or_else(|| {
-                                anyhow!(
-                                    "{} not found in the manifest and no --game parameter",
-                                    path.display()
-                                )
-                            })?
-                            .to_string();
-                        let doc_type = single_manifest.map(|m| m.doc_type).ok_or_else(|| {
-                            anyhow!("{} not found in the manifest", path.display())
-                        })?;
-                        Ok(DocMeta {
-                            file: path,
-                            game,
-                            doc_type,
-                        })
-                    })
-                    .collect::<anyhow::Result<Vec<_>>>()?
-            };
-            for doc_meta in &to_ingest {
-                let raw_chunks = match cli.chunker {
-                    Chunker::Fixed51264 => {
-                        let chunker = FixedSizeChunker {
-                            size: 512,
-                            overlap: 64,
-                        };
-                        chunker
-                            .chunk(&doc_meta.file)
-                            .with_context(|| format!("chunking {}", &doc_meta.file.display()))?
-                    } // default
-                    Chunker::Paragraph => {
-                        let chunker = ParagraphChunker {
-                            min_size: 150,
-                            target_size: 350,
-                            max_size: 500,
-                        };
-                        chunker
-                            .chunk(&doc_meta.file)
-                            .with_context(|| format!("chunking {}", &doc_meta.file.display()))?
-                    }
-                };
-
-                let to_embed: Vec<&str> =
-                    raw_chunks.iter().map(|chunk| chunk.text.as_str()).collect();
-                let embeddings = embedder
-                    .embed(&to_embed)
-                    .await
-                    .with_context(|| format!("embedding {}", &doc_meta.file.display()))?;
-                let mut chunks: Vec<Chunk> = Vec::new();
-                for (raw_chunk, embedding) in raw_chunks.into_iter().zip(embeddings) {
-                    chunks.push(Chunk {
-                        id: "TODO".to_string(),
-                        text: raw_chunk.text,
-                        game: doc_meta.game.to_string(),
-                        doc_type: doc_meta.doc_type,
-                        page: raw_chunk.page,
-                        embedding: Some(embedding),
-                    })
-                }
-                store
-                    .insert(&chunks)
-                    .await
-                    .with_context(|| format!("inserting {}", &doc_meta.file.display()))?;
-            }
-            store
-                .update_indices()
-                .await
-                .with_context(|| "updating indices")?;
-            println!("{} rulebooks ingested", to_ingest.len());
+            run_ingest(cli.chunker, embedder, store, paths, game).await
         }
-        Command::Ask { question } => {
-            let retriever = Retriever::Dense(DenseRetriever::new(store, embedder));
-            let generator = OllamaGenerator::new();
-            let pipeline = NaivePipeline::new(retriever, generator);
-
-            let answer = pipeline
-                .ask(
-                    &question,
-                    &QueryOptions {
-                        top_k: 5,
-                        ..Default::default()
-                    },
-                )
-                .await?;
-            println!("{}", answer.text);
-        }
+        Command::Ask { question } => run_ask(embedder, store, question).await,
         Command::Eval {
             retrieval_only,
             no_game_filter,
@@ -229,222 +137,316 @@ async fn main() -> anyhow::Result<()> {
                 RetrieverKind::Sparse => Retriever::Sparse(SparseRetriever::new(store)),
             };
             if retrieval_only {
-                let evaluator = RetrievalEvaluator::new(retriever, apply_game_filter, only, limit);
-                let evaluation = evaluator.run().await?;
-                println!("Evals run: {}", evaluation.evals.len());
-                println!(
-                    "Recall@1 match:  {:.1}%",
-                    evaluation.ratios.recall_at_1 * 100.0
-                );
-                println!(
-                    "Recall@3 match:  {:.1}%",
-                    evaluation.ratios.recall_at_3 * 100.0
-                );
-                println!(
-                    "Recall@5 match:  {:.1}%",
-                    evaluation.ratios.recall_at_5 * 100.0
-                );
-                println!(
-                    "Recall@10 match:  {:.1}%",
-                    evaluation.ratios.recall_at_10 * 100.0
-                );
-                println!("MRR mean:  {:.3}", evaluation.ratios.mrr_mean);
-                println!("Latency:");
-                println!("  - p50: {:.1}ms", evaluation.ratios.elapsed_millis_p50);
-                println!("  - p95: {:.1}ms", evaluation.ratios.elapsed_millis_p95);
-                if cli.verbose > 0 {
-                    if evaluation.ratios.recall_at_1 < 1.0 {
-                        println!("\nMissed Recall@1:\n")
-                    }
-                    for wrong in evaluation
-                        .evals
-                        .iter()
-                        .filter(|e| e.outcome.metrics().is_some_and(|m| !m.recall_at_1))
-                    {
-                        println!("ID: {}", wrong.example.id);
-                        println!("Question:\n{}", wrong.example.question);
-                        // This pattern match is unecessary because you can only get here if chunk_match was false, but very soon
-                        // we will be adding more retrieval metrics and this already being set up will make that much easier
-                        #[allow(clippy::collapsible_if)]
-                        if let RetrievalOutcome::Ok {
-                            retrieval,
-                            metrics:
-                                RetrievalMetrics {
-                                    recall_at_3,
-                                    recall_at_5,
-                                    recall_at_10,
-                                    found_at,
-                                    ..
-                                },
-                        } = &wrong.outcome
-                        {
-                            if !recall_at_10 {
-                                println!("Chunk(s) failed Recall@10");
-                            } else if !recall_at_5 {
-                                println!("Chunk(s) passed Recall@10 but failed Recall@5");
-                            } else if !recall_at_3 {
-                                println!("Chunk(s) passed Recall@5 but failed Recall@3");
-                            } else {
-                                println!("Chunk(s) passed Recall@3 but failed Recall@1");
-                            }
-                            println!("Expected chunk(s):");
-                            for c in &wrong.example.expected_chunk_contains {
-                                println!("  - {}", c);
-                            }
-                            if cli.verbose > 1 {
-                                println!("Actual failed chunks:\n");
-                                let to_take = if *found_at > 0 {
-                                    *found_at - 1
-                                } else {
-                                    retrieval.len()
-                                };
-                                for rr in retrieval.iter().take(to_take) {
-                                    println!(
-                                        "Failed chunk {}:\n{}\n",
-                                        rr.chunk.id,
-                                        rr.chunk.text.replace("\n\n", "\n").trim()
-                                    );
-                                }
-                            }
-                        }
-                        println!();
-                    }
-                }
+                run_retrieval_eval(retriever, apply_game_filter, only, limit, cli.verbose).await
             } else {
-                let generator = OllamaGenerator::new();
-                let evaluation = match pipeline {
-                    PipelineOption::Naive => {
-                        let pipeline = NaivePipeline::new(retriever, generator);
-                        let evaluator =
-                            PipelineEvaluator::new(pipeline, apply_game_filter, only, limit);
-                        evaluator.run().await?
-                    }
-                    PipelineOption::FullContext => {
-                        let pipeline = FullContextPipeline::new(generator);
-                        let evaluator =
-                            PipelineEvaluator::new(pipeline, apply_game_filter, only, limit);
-                        evaluator.run().await?
-                    }
-                };
-                println!("Evals run: {}", evaluation.evals.len());
-                println!(
-                    "Recall@1 match:  {:.1}%",
-                    evaluation.retrieval_ratios.recall_at_1 * 100.0
-                );
-                println!(
-                    "Recall@3 match:  {:.1}%",
-                    evaluation.retrieval_ratios.recall_at_3 * 100.0
-                );
-                println!(
-                    "Recall@5 match:  {:.1}%",
-                    evaluation.retrieval_ratios.recall_at_5 * 100.0
-                );
-                println!(
-                    "Recall@10 match:  {:.1}%",
-                    evaluation.retrieval_ratios.recall_at_10 * 100.0
-                );
-                println!("MRR mean:  {:.3}", evaluation.retrieval_ratios.mrr_mean);
-                println!("Retrieval latency:");
-                println!(
-                    "  - p50: {:.1}ms",
-                    evaluation.retrieval_ratios.elapsed_millis_p50
-                );
-                println!(
-                    "  - p95: {:.1}ms",
-                    evaluation.retrieval_ratios.elapsed_millis_p95
-                );
-                println!(
-                    "Quote match:  {:.1}%",
-                    evaluation.generation_ratios.quote * 100.0
-                );
-                println!(
-                    "Refusal rate: {:.1}%",
-                    evaluation.generation_ratios.refusal * 100.0
-                );
-                println!("Total latency:");
-                println!(
-                    "  - p50: {:.1}ms",
-                    evaluation.generation_ratios.total_elapsed_millis_p50
-                );
-                println!(
-                    "  - p95: {:.1}ms",
-                    evaluation.generation_ratios.total_elapsed_millis_p95
-                );
-                println!("Input tokens (approx):");
-                println!("  - p50: {}", evaluation.generation_ratios.input_tokens_p50);
-                println!("  - p95: {}", evaluation.generation_ratios.input_tokens_p95);
-                println!("Output tokens (approx):");
-                println!(
-                    "  - p50: {}",
-                    evaluation.generation_ratios.output_tokens_p50
-                );
-                println!(
-                    "  - p95: {}",
-                    evaluation.generation_ratios.output_tokens_p95
-                );
-                let any_failures = evaluation.retrieval_ratios.recall_at_1 < 1.0
-                    || evaluation.generation_ratios.quote < 1.0
-                    || evaluation.generation_ratios.refusal > 0.0;
-                if any_failures {
-                    println!("\nWrong answers:\n")
-                }
-                for wrong in evaluation.evals.iter().filter(|e| {
-                    e.outcome.metrics().is_some_and(|m| {
-                        !m.retr_metrics.recall_at_1
-                            || !m.gen_metrics.quote_match
-                            || m.gen_metrics.refused
-                    })
-                }) {
-                    println!("ID: {}", wrong.example.id);
-                    println!("Question:\n{}", wrong.example.question);
-                    if let FullOutcome::Ok {
-                        retrieval_metrics:
-                            RetrievalMetrics {
-                                recall_at_3,
-                                recall_at_5,
-                                ..
-                            },
-                        generation_metrics:
-                            GenerationMetrics {
-                                quote_match,
-                                refused,
-                                ..
-                            },
-                        answer,
-                    } = &wrong.outcome
-                    {
-                        if !recall_at_5 {
-                            println!("Chunk not found");
-                            println!("Expected chunk(s):");
-                            for c in &wrong.example.expected_chunk_contains {
-                                println!("  - {}", c);
-                            }
-                        } else if *refused {
-                            println!("Refusal");
-                        } else if !quote_match {
-                            println!("Quote failure");
-                            println!("Expected quote(s):");
-                            for q in &wrong.example.expected_quote {
-                                println!("  - {}", q);
-                            }
-                        } else {
-                            if !recall_at_3 {
-                                println!("Recall@3 failed");
-                            } else {
-                                println!("Recall@1 failed");
-                            }
-                            println!("Expected chunk(s):");
-                            for c in &wrong.example.expected_chunk_contains {
-                                println!("  - {}", c);
-                            }
-                        }
-                        println!("Answer:\n{}", answer.text);
-                    }
-                    println!();
-                }
+                run_pipeline_eval(retriever, pipeline, apply_game_filter, only, limit).await
             }
         }
     }
+}
 
+async fn run_ingest(
+    chunker_choice: Chunker,
+    embedder: OllamaEmbedder,
+    store: LanceStore,
+    paths: Vec<PathBuf>,
+    game: Option<String>,
+) -> anyhow::Result<()> {
+    let manifest = read_manifest(Path::new("./data/pdfs/manifest.toml"))?;
+    let to_ingest: Vec<DocMeta> = if paths.is_empty() {
+        manifest
+    } else {
+        paths
+            .into_iter()
+            .map(|path| {
+                let single_manifest = manifest.iter().find(|meta| meta.file == path);
+                let game = game
+                    .as_ref()
+                    .or_else(|| single_manifest.map(|m| &m.game))
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "{} not found in the manifest and no --game parameter",
+                            path.display()
+                        )
+                    })?
+                    .clone();
+                let doc_type = single_manifest
+                    .map(|m| m.doc_type)
+                    .ok_or_else(|| anyhow!("{} not found in the manifest", path.display()))?;
+                Ok(DocMeta {
+                    file: path,
+                    game,
+                    doc_type,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+    };
+    for doc_meta in &to_ingest {
+        let raw_chunks = match chunker_choice {
+            Chunker::Fixed51264 => {
+                let chunker = FixedSizeChunker {
+                    size: 512,
+                    overlap: 64,
+                };
+                chunker
+                    .chunk(&doc_meta.file)
+                    .with_context(|| format!("chunking {}", &doc_meta.file.display()))?
+            }
+            Chunker::Paragraph => {
+                let chunker = ParagraphChunker {
+                    min_size: 150,
+                    target_size: 350,
+                    max_size: 500,
+                };
+                chunker
+                    .chunk(&doc_meta.file)
+                    .with_context(|| format!("chunking {}", &doc_meta.file.display()))?
+            }
+        };
+
+        let to_embed: Vec<&str> = raw_chunks.iter().map(|chunk| chunk.text.as_str()).collect();
+        let embeddings = embedder
+            .embed(&to_embed)
+            .await
+            .with_context(|| format!("embedding {}", &doc_meta.file.display()))?;
+        let mut chunks: Vec<Chunk> = Vec::new();
+        let mut page_counters: HashMap<Option<u32>, u32> = HashMap::new();
+        for (raw_chunk, embedding) in raw_chunks.into_iter().zip(embeddings) {
+            let counter = page_counters.entry(raw_chunk.page).or_insert(0);
+            let page_str = raw_chunk
+                .page
+                .map_or_else(|| "none".to_string(), |p| p.to_string());
+            let id = format!(
+                "{}-{}-{}-{}",
+                doc_meta.game, doc_meta.doc_type, page_str, *counter
+            );
+            *counter += 1;
+            chunks.push(Chunk {
+                id,
+                text: raw_chunk.text,
+                game: doc_meta.game.clone(),
+                doc_type: doc_meta.doc_type,
+                page: raw_chunk.page,
+                embedding: Some(embedding),
+            });
+        }
+        store
+            .insert(&chunks)
+            .await
+            .with_context(|| format!("inserting {}", &doc_meta.file.display()))?;
+    }
+    store
+        .update_indices()
+        .await
+        .with_context(|| "updating indices")?;
+    println!("{} rulebooks ingested", to_ingest.len());
     Ok(())
+}
+
+async fn run_ask(
+    embedder: OllamaEmbedder,
+    store: LanceStore,
+    question: String,
+) -> anyhow::Result<()> {
+    let retriever = Retriever::Dense(DenseRetriever::new(store, embedder));
+    let generator = OllamaGenerator::new();
+    let pipeline = NaivePipeline::new(retriever, generator);
+
+    let answer = pipeline
+        .ask(
+            &question,
+            &QueryOptions {
+                top_k: 5,
+                ..Default::default()
+            },
+        )
+        .await?;
+    println!("{}", answer.text);
+    Ok(())
+}
+
+async fn run_retrieval_eval(
+    retriever: Retriever,
+    apply_game_filter: bool,
+    only: Vec<String>,
+    limit: Option<usize>,
+    verbose: u8,
+) -> anyhow::Result<()> {
+    let evaluator = RetrievalEvaluator::new(retriever, apply_game_filter, only, limit);
+    let evaluation = evaluator.run().await?;
+    println!("Evals run: {}", evaluation.evals.len());
+    print_retrieval_ratios(&evaluation.ratios);
+    if verbose > 0 {
+        if evaluation.ratios.recall_at_1 < 1.0 {
+            println!("\nMissed Recall@1:\n");
+        }
+        for wrong in evaluation
+            .evals
+            .iter()
+            .filter(|e| e.outcome.metrics().is_some_and(|m| !m.recall_at_1))
+        {
+            println!("ID: {}", wrong.example.id);
+            println!("Question:\n{}", wrong.example.question);
+            // This pattern match is unecessary because you can only get here if chunk_match was false, but very soon
+            // we will be adding more retrieval metrics and this already being set up will make that much easier
+            #[allow(clippy::collapsible_if)]
+            if let RetrievalOutcome::Ok {
+                retrieval,
+                metrics:
+                    RetrievalMetrics {
+                        recall_at_3,
+                        recall_at_5,
+                        recall_at_10,
+                        found_at,
+                        ..
+                    },
+            } = &wrong.outcome
+            {
+                if !recall_at_10 {
+                    println!("Chunk(s) failed Recall@10");
+                } else if !recall_at_5 {
+                    println!("Chunk(s) passed Recall@10 but failed Recall@5");
+                } else if !recall_at_3 {
+                    println!("Chunk(s) passed Recall@5 but failed Recall@3");
+                } else {
+                    println!("Chunk(s) passed Recall@3 but failed Recall@1");
+                }
+                println!("Expected chunk(s):");
+                for c in &wrong.example.expected_chunk_contains {
+                    println!("  - {c}");
+                }
+                if verbose > 1 {
+                    println!("Actual failed chunks:\n");
+                    let to_take = if *found_at > 0 {
+                        *found_at - 1
+                    } else {
+                        retrieval.len()
+                    };
+                    for rr in retrieval.iter().take(to_take) {
+                        println!(
+                            "Failed chunk {}:\n{}\n",
+                            rr.chunk.id,
+                            rr.chunk.text.replace("\n\n", "\n").trim()
+                        );
+                    }
+                }
+            }
+            println!();
+        }
+    }
+    Ok(())
+}
+
+async fn run_pipeline_eval(
+    retriever: Retriever,
+    pipeline: PipelineOption,
+    apply_game_filter: bool,
+    only: Vec<String>,
+    limit: Option<usize>,
+) -> anyhow::Result<()> {
+    let generator = OllamaGenerator::new();
+    let evaluation = match pipeline {
+        PipelineOption::Naive => {
+            let pipeline = NaivePipeline::new(retriever, generator);
+            let evaluator = PipelineEvaluator::new(pipeline, apply_game_filter, only, limit);
+            evaluator.run().await?
+        }
+        PipelineOption::FullContext => {
+            let pipeline = FullContextPipeline::new(generator);
+            let evaluator = PipelineEvaluator::new(pipeline, apply_game_filter, only, limit);
+            evaluator.run().await?
+        }
+    };
+    print_pipeline_summary(&evaluation);
+    print_pipeline_failures(&evaluation);
+    Ok(())
+}
+
+fn print_retrieval_ratios(ratios: &RetrievalRatios) {
+    println!("Recall@1 match:  {:.1}%", ratios.recall_at_1 * 100.0);
+    println!("Recall@3 match:  {:.1}%", ratios.recall_at_3 * 100.0);
+    println!("Recall@5 match:  {:.1}%", ratios.recall_at_5 * 100.0);
+    println!("Recall@10 match:  {:.1}%", ratios.recall_at_10 * 100.0);
+    println!("MRR mean:  {:.3}", ratios.mrr_mean);
+    println!("Retrieval latency:");
+    println!("  - p50: {:.1}ms", ratios.elapsed_millis_p50);
+    println!("  - p95: {:.1}ms", ratios.elapsed_millis_p95);
+}
+
+fn print_pipeline_summary(evaluation: &FullEvaluation) {
+    println!("Evals run: {}", evaluation.evals.len());
+    print_retrieval_ratios(&evaluation.retrieval_ratios);
+    let gen_ratios = &evaluation.generation_ratios;
+    println!("Quote match:  {:.1}%", gen_ratios.quote * 100.0);
+    println!("Refusal rate: {:.1}%", gen_ratios.refusal * 100.0);
+    println!("Total latency:");
+    println!("  - p50: {:.1}ms", gen_ratios.total_elapsed_millis_p50);
+    println!("  - p95: {:.1}ms", gen_ratios.total_elapsed_millis_p95);
+    println!("Input tokens (approx):");
+    println!("  - p50: {}", gen_ratios.input_tokens_p50);
+    println!("  - p95: {}", gen_ratios.input_tokens_p95);
+    println!("Output tokens (approx):");
+    println!("  - p50: {}", gen_ratios.output_tokens_p50);
+    println!("  - p95: {}", gen_ratios.output_tokens_p95);
+}
+
+fn print_pipeline_failures(evaluation: &FullEvaluation) {
+    let any_failures = evaluation.retrieval_ratios.recall_at_1 < 1.0
+        || evaluation.generation_ratios.quote < 1.0
+        || evaluation.generation_ratios.refusal > 0.0;
+    if any_failures {
+        println!("\nWrong answers:\n");
+    }
+    for wrong in evaluation.evals.iter().filter(|e| {
+        e.outcome.metrics().is_some_and(|m| {
+            !m.retr_metrics.recall_at_1 || !m.gen_metrics.quote_match || m.gen_metrics.refused
+        })
+    }) {
+        println!("ID: {}", wrong.example.id);
+        println!("Question:\n{}", wrong.example.question);
+        if let FullOutcome::Ok {
+            retrieval_metrics:
+                RetrievalMetrics {
+                    recall_at_3,
+                    recall_at_5,
+                    ..
+                },
+            generation_metrics:
+                GenerationMetrics {
+                    quote_match,
+                    refused,
+                    ..
+                },
+            answer,
+        } = &wrong.outcome
+        {
+            if !recall_at_5 {
+                println!("Chunk not found");
+                println!("Expected chunk(s):");
+                for c in &wrong.example.expected_chunk_contains {
+                    println!("  - {c}");
+                }
+            } else if *refused {
+                println!("Refusal");
+            } else if !quote_match {
+                println!("Quote failure");
+                println!("Expected quote(s):");
+                for q in &wrong.example.expected_quote {
+                    println!("  - {q}");
+                }
+            } else {
+                if *recall_at_3 {
+                    println!("Recall@1 failed");
+                } else {
+                    println!("Recall@3 failed");
+                }
+                println!("Expected chunk(s):");
+                for c in &wrong.example.expected_chunk_contains {
+                    println!("  - {c}");
+                }
+            }
+            println!("Answer:\n{}", answer.text);
+        }
+        println!();
+    }
 }

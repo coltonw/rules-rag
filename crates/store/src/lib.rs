@@ -132,7 +132,7 @@ impl Store for LanceStore {
             });
         }
 
-        Ok(LanceStore { table, schema })
+        Ok(Self { table, schema })
     }
 
     async fn insert(&self, chunks: &[Chunk]) -> Result<(), StoreError> {
@@ -228,7 +228,7 @@ fn records_to_results_vector(batches: Vec<RecordBatch>) -> Vec<RetrievalResult> 
             results.push(RetrievalResult {
                 chunk,
                 score: 1.0 - distances.value(i),
-            })
+            });
         }
     }
 
@@ -256,7 +256,7 @@ fn records_to_results_fts(batches: Vec<RecordBatch>) -> Vec<RetrievalResult> {
             results.push(RetrievalResult {
                 chunk,
                 score: scores.value(i),
-            })
+            });
         }
     }
 

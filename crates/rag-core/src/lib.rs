@@ -1,4 +1,5 @@
 #![allow(async_fn_in_trait)]
+use std::fmt;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -28,6 +29,17 @@ pub enum DocType {
     Rules,
     Reference,
     Faq,
+}
+
+impl fmt::Display for DocType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Self::Rules => "rules",
+            Self::Reference => "reference",
+            Self::Faq => "faq",
+        };
+        f.write_str(s)
+    }
 }
 
 #[derive(Serialize)]

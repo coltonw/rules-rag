@@ -3,6 +3,9 @@ name = "ingest"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 rag-core = { path = "../rag-core" }
 regex = "1.12.3"

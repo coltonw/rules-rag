@@ -1,6 +1,7 @@
 use rag_core::RawChunk;
 use regex::Regex;
 use std::collections::HashSet;
+use std::fmt::Write;
 use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -54,7 +55,7 @@ impl FixedSizeChunker {
             }
             if let Some(page) = pages.last_mut() {
                 // TODO: figure out what last_piece_token_len is and if I need to use it
-                page.extend(tokenizer.encode(&format!("{}\n", line), allowed_specials).0);
+                page.extend(tokenizer.encode(&format!("{line}\n"), allowed_specials).0);
             }
         }
 
@@ -70,7 +71,9 @@ impl FixedSizeChunker {
                 // TODO: id should not be hardcoded
                 chunks.push(RawChunk {
                     text,
-                    page: Some((page_num + 1) as u32), // page numbers start from 1
+                    page: Some(
+                        u32::try_from(page_num + 1).expect("page num will never overflow u32"),
+                    ), // page numbers start from 1
                 });
 
                 index += self.size;
@@ -107,7 +110,7 @@ struct Section {
 }
 
 impl Section {
-    fn new(page: u32) -> Self {
+    const fn new(page: u32) -> Self {
         Self {
             paragraphs: Vec::new(),
             page,
@@ -116,13 +119,14 @@ impl Section {
     fn heading_level(&self) -> Option<u8> {
         let first_line = self.paragraphs.first()?.lines().next()?;
         let count = first_line.bytes().take_while(|&b| b == b'#').count();
+        #[allow(clippy::cast_possible_truncation)] // capped at 6
         (count > 0).then_some(count.min(6) as u8)
     }
 }
 
 impl ParagraphChunker {
     pub fn chunk_text(&self, text: &str) -> Vec<RawChunk> {
-        let sections = self.parse_sections(text);
+        let sections = Self::parse_sections(text);
         let packed = self.pack_sections(&sections);
         self.merge_small_chunks(packed)
     }
@@ -179,11 +183,10 @@ impl ParagraphChunker {
             .heading_level()
             .and_then(|_| section.paragraphs.first())
             .and_then(|p| p.lines().next())
-            .map(|line| format!("{}\n", line));
+            .map(|line| format!("{line}\n"));
         let prefix_tokens = heading_prefix
             .as_ref()
-            .map(|p| tokenizer.encode(p, allowed_specials).0.len())
-            .unwrap_or(0);
+            .map_or(0, |p| tokenizer.encode(p, allowed_specials).0.len());
         let (heading_prefix, prefix_tokens) = if prefix_tokens * 4 >= self.max_size {
             (None, 0)
         } else {
@@ -196,7 +199,7 @@ impl ParagraphChunker {
                 text
             } else {
                 match &heading_prefix {
-                    Some(p) => format!("{}{}", p, text),
+                    Some(p) => format!("{p}{text}"),
                     None => text,
                 }
             }
@@ -204,7 +207,7 @@ impl ParagraphChunker {
         let mut acc = String::new();
         let mut acc_tokens: usize = 0;
         for para in &section.paragraphs {
-            let para_with_nl = format!("{}\n", para);
+            let para_with_nl = format!("{para}\n");
             let para_tokens = tokenizer.encode(&para_with_nl, allowed_specials).0.len();
             if para_tokens > effective_max {
                 if !acc.is_empty() {
@@ -256,11 +259,11 @@ impl ParagraphChunker {
         sub_chunks
     }
 
-    fn parse_sections(&self, text: &str) -> Vec<Section> {
+    fn parse_sections(text: &str) -> Vec<Section> {
         let lines = text.lines();
         let mut page_num = 0;
         let mut prev_blank = false;
-        let mut current_paragraph = "".to_string();
+        let mut current_paragraph = String::new();
         let mut current_section: Section = Section::new(0);
         let mut sections: Vec<Section> = Vec::new();
         // First iterate through lines and break it down into sections and paragraphs
@@ -277,7 +280,7 @@ impl ParagraphChunker {
                     sections.push(current_section);
                 }
                 page_num += 1;
-                current_paragraph = "".to_string();
+                current_paragraph = String::new();
                 current_section = Section::new(page_num);
                 prev_blank = false;
                 continue;
@@ -286,8 +289,8 @@ impl ParagraphChunker {
                 if !current_paragraph.is_empty() {
                     current_section.paragraphs.push(current_paragraph);
                 }
-                current_paragraph = "".to_string();
-                if line.starts_with("#") {
+                current_paragraph = String::new();
+                if line.starts_with('#') {
                     if !current_section.paragraphs.is_empty() {
                         sections.push(current_section);
                     }
@@ -295,7 +298,7 @@ impl ParagraphChunker {
                 }
             }
             prev_blank = false;
-            current_paragraph += &format!("{}\n", line);
+            writeln!(current_paragraph, "{line}").unwrap();
         }
         if !current_paragraph.is_empty() {
             current_section.paragraphs.push(current_paragraph);
@@ -313,7 +316,7 @@ impl ParagraphChunker {
         if sections.is_empty() {
             return chunks;
         }
-        let mut chunk = "".to_string();
+        let mut chunk = String::new();
         let mut chunk_token_len = 0;
         let mut chunk_page: Option<u32> = None;
         let mut chunk_heading_level: Option<u8> = None;
@@ -356,13 +359,13 @@ impl ParagraphChunker {
                     &mut chunk_heading_level,
                     &mut chunk_page,
                 );
-                chunk += &format!("{}\n", &section_text);
+                writeln!(chunk, "{}", &section_text).unwrap();
                 chunk_token_len += section_token_len;
                 chunk_page = Some(section.page);
                 chunk_heading_level = section_heading_level;
             } else if section_token_len + chunk_token_len >= self.target_size {
                 chunk_page.get_or_insert(section.page);
-                chunk += &format!("{}\n", &section_text);
+                writeln!(chunk, "{}", &section_text).unwrap();
                 chunk_token_len += section_token_len;
                 chunk_heading_level = chunk_heading_level.or(section_heading_level);
                 flush(
@@ -374,7 +377,7 @@ impl ParagraphChunker {
                 );
             } else {
                 chunk_page.get_or_insert(section.page);
-                chunk += &format!("{}\n", &section_text);
+                writeln!(chunk, "{}", &section_text).unwrap();
                 chunk_token_len += section_token_len;
                 chunk_heading_level = chunk_heading_level.or(section_heading_level);
             }
@@ -439,7 +442,10 @@ mod tests {
         // `٦` (U+0666 ARABIC-INDIC DIGIT SIX) encodes to 2 UTF-8 bytes (D9 A6).
         // Tiktoken may represent it as two byte-level tokens; size=1 slices
         // between them producing bytes that are not valid UTF-8 on their own.
-        let chunker = FixedSizeChunker { size: 1, overlap: 0 };
+        let chunker = FixedSizeChunker {
+            size: 1,
+            overlap: 0,
+        };
         let text = "=== PAGE 1 ===\n٦٦٦\n";
         let chunks = chunker.chunk_text(text); // must not panic
         assert!(!chunks.is_empty());
@@ -640,8 +646,8 @@ mod tests {
                     ## After Big\n\nafter content\n";
         let chunks = chunker.chunk_text(text);
         assert_eq!(chunks.len(), 3, "expected 3 chunks, got {}", chunks.len());
-        assert!(chunks[0].text.contains("A"));
-        assert!(chunks[1].text.contains("B"));
+        assert!(chunks[0].text.contains('A'));
+        assert!(chunks[1].text.contains('B'));
         assert!(chunks[2].text.contains("Big"));
         assert!(
             chunks[2].text.contains("After Big"),
@@ -802,8 +808,8 @@ mod tests {
             .iter()
             .find(|c| c.text.contains("alpha content") && c.text.contains("bcontent0"))
             .expect("expected ## A to merge forward into ## B");
-        assert!(merged.text.contains("A"));
-        assert!(merged.text.contains("B"));
+        assert!(merged.text.contains('A'));
+        assert!(merged.text.contains('B'));
     }
 
     #[test]

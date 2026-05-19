@@ -121,6 +121,7 @@ pub enum FullOutcome {
 }
 
 #[derive(Serialize, Default, Debug)]
+#[allow(clippy::struct_excessive_bools)] // bools are each meaningful
 pub struct RetrievalMetrics {
     pub recall_at_1: bool,
     pub recall_at_3: bool,
@@ -133,8 +134,8 @@ pub struct RetrievalMetrics {
 
 impl RetrievalMetrics {
     fn from(found: Option<usize>, elapsed_millis: u64) -> Self {
-        match found {
-            None => Self {
+        found.map_or(
+            Self {
                 recall_at_1: false,
                 recall_at_3: false,
                 recall_at_5: false,
@@ -143,7 +144,7 @@ impl RetrievalMetrics {
                 found_at: 0,
                 elapsed_millis,
             },
-            Some(idx) => Self {
+            |idx| Self {
                 recall_at_1: idx < 1,
                 recall_at_3: idx < 3,
                 recall_at_5: idx < 5,
@@ -152,7 +153,7 @@ impl RetrievalMetrics {
                 found_at: idx + 1,
                 elapsed_millis,
             },
-        }
+        )
     }
 }
 
@@ -170,7 +171,7 @@ pub struct GenerationMetrics {
 }
 
 impl FullOutcome {
-    pub fn metrics<'s>(&'s self) -> Option<MetricsRef<'s>> {
+    pub const fn metrics(&self) -> Option<MetricsRef<'_>> {
         match self {
             Self::Ok {
                 retrieval_metrics,
@@ -180,7 +181,7 @@ impl FullOutcome {
                 retr_metrics: retrieval_metrics,
                 gen_metrics: generation_metrics,
             }),
-            _ => None,
+            Self::Errored { .. } => None,
         }
     }
 }
@@ -215,10 +216,10 @@ pub enum RetrievalOutcome {
 }
 
 impl RetrievalOutcome {
-    pub fn metrics(&self) -> Option<&RetrievalMetrics> {
+    pub const fn metrics(&self) -> Option<&RetrievalMetrics> {
         match self {
             Self::Ok { metrics, .. } => Some(metrics),
-            _ => None,
+            Self::Errored { .. } => None,
         }
     }
 }
@@ -231,7 +232,7 @@ pub struct PipelineEvaluator<P: Pipeline> {
 }
 
 impl<P: Pipeline> PipelineEvaluator<P> {
-    pub fn new(
+    pub const fn new(
         pipeline: P,
         apply_game_filter: bool,
         tag_filters: Vec<String>,
@@ -245,6 +246,7 @@ impl<P: Pipeline> PipelineEvaluator<P> {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     pub async fn run(&self) -> Result<FullEvaluation, EvalError> {
         let examples = get_golden_set(Path::new("./data/eval/golden.jsonl"))?
             .into_iter()
@@ -275,7 +277,7 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                 .await
             {
                 Ok(results) => {
-                    let elapsed = start.elapsed().as_millis() as u64;
+                    let elapsed = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
                     (results, elapsed)
                 }
                 Err(e) => {
@@ -300,7 +302,7 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                     );
                     let quote_match = check_expected_quote(&example, &text);
                     let refused = check_refused(&example, &text);
-                    let elapsed_millis = start.elapsed().as_millis() as u64;
+                    let elapsed_millis = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
                     let input_tokens = count_tokens(&example.question)
                         + retrieval_results[..5.min(retrieval_results.len())]
                             .iter()
@@ -352,7 +354,7 @@ impl<P: Pipeline> PipelineEvaluator<P> {
             .iter()
             .map(|m| m.gen_metrics.total_elapsed_millis)
             .collect();
-        generation_elapsed_sorted.sort();
+        generation_elapsed_sorted.sort_unstable();
         let p50_generation = generation_elapsed_sorted
             .get(generation_elapsed_sorted.len() / 2)
             .copied()
@@ -394,7 +396,7 @@ pub struct RetrievalEvaluator<R: Retrieve> {
 }
 
 impl<R: Retrieve> RetrievalEvaluator<R> {
-    pub fn new(
+    pub const fn new(
         retriever: R,
         apply_game_filter: bool,
         tag_filters: Vec<String>,
@@ -439,7 +441,8 @@ impl<R: Retrieve> RetrievalEvaluator<R> {
                     .await
                 {
                     Ok(retrieval) => {
-                        let elapsed_millis = start.elapsed().as_millis() as u64;
+                        let elapsed_millis =
+                            u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
                         let metrics = RetrievalMetrics::from(
                             check_expected_chunk_contains(&example, &retrieval),
                             elapsed_millis,
@@ -592,7 +595,7 @@ fn ratio(numerator: f32, denominator: usize) -> f32 {
 
 fn percentiles<I: IntoIterator<Item = usize>>(values: I) -> (usize, usize) {
     let mut sorted: Vec<usize> = values.into_iter().collect();
-    sorted.sort();
+    sorted.sort_unstable();
     let p50 = sorted.get(sorted.len() / 2).copied().unwrap_or_default();
     let p95 = sorted
         .get(sorted.len() * 19 / 20)
@@ -601,6 +604,7 @@ fn percentiles<I: IntoIterator<Item = usize>>(values: I) -> (usize, usize) {
     (p50, p95)
 }
 
+#[allow(clippy::similar_names)]
 fn summarize_retrieval(metrics: &[&RetrievalMetrics]) -> RetrievalRatios {
     let total = metrics.len();
     let recall_at_1_passed = metrics.iter().filter(|m| m.recall_at_1).count();
@@ -615,7 +619,7 @@ fn summarize_retrieval(metrics: &[&RetrievalMetrics]) -> RetrievalRatios {
     let recall_at_10 = ratio(recall_at_10_passed as f32, total);
 
     let mut elapsed_sorted: Vec<u64> = metrics.iter().map(|m| m.elapsed_millis).collect();
-    elapsed_sorted.sort();
+    elapsed_sorted.sort_unstable();
     let elapsed_millis_p50 = elapsed_sorted
         .get(elapsed_sorted.len() / 2)
         .copied()
@@ -638,6 +642,8 @@ fn summarize_retrieval(metrics: &[&RetrievalMetrics]) -> RetrievalRatios {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::float_cmp)] // tests compare against exact 0.0 / 1.0 sentinel values
+
     use super::*;
 
     #[test]

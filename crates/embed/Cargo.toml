@@ -3,6 +3,9 @@ name = "embed"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 rag-core = { path = "../rag-core" }
 reqwest = { version = "0.13.3", features = ["json"] }

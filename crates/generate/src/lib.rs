@@ -132,7 +132,7 @@ impl Generator for OllamaGenerator {
     type Error = GenerateError;
     fn new() -> Self {
         let client = Client::new();
-        OllamaGenerator {
+        Self {
             client,
             // TODO: cargo.config for stuff like this
             base_url: "http://localhost:11434".to_string(),

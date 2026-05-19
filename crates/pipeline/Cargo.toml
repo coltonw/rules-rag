@@ -3,6 +3,9 @@ name = "pipeline"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 generate = { path = "../generate" }
 ingest = { path = "../ingest" }

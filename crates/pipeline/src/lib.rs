@@ -29,7 +29,7 @@ pub struct NaivePipeline {
 }
 
 impl NaivePipeline {
-    pub fn new(retriever: Retriever, generator: OllamaGenerator) -> Self {
+    pub const fn new(retriever: Retriever, generator: OllamaGenerator) -> Self {
         Self {
             retriever,
             generator,
@@ -65,7 +65,7 @@ pub struct FullContextPipeline {
 }
 
 impl FullContextPipeline {
-    pub fn new(generator: OllamaGenerator) -> Self {
+    pub const fn new(generator: OllamaGenerator) -> Self {
         Self { generator }
     }
 }
@@ -78,15 +78,12 @@ impl Pipeline for FullContextPipeline {
         options: &QueryOptions,
     ) -> Result<Vec<RetrievalResult>, PipelineError> {
         let manifest = read_manifest(Path::new("./data/pdfs/manifest.toml"))?;
-        let metadata = match options
+        let Some(metadata) = options
             .game_filter
             .as_ref()
             .and_then(|game| manifest.into_iter().find(|manifest| manifest.game == *game))
-        {
-            Some(metadata) => metadata,
-            None => {
-                panic!("FullContextPipeline requires game filter matching a game in the manifest")
-            }
+        else {
+            panic!("FullContextPipeline requires game filter matching a game in the manifest")
         };
 
         let text = read_to_string(&metadata.file).map_err(|e| PipelineError::ReadFile {

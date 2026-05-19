@@ -3,9 +3,13 @@ name = "retrieve"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 embed = { path = "../embed" }
 rag-core = { path = "../rag-core" }
 store = { path = "../store" }
 thiserror = "2.0.18"
+tokio = { version = "1.52.3", features = ["macros"] }
 tracing = "0.1.44"

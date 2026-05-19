@@ -3,6 +3,9 @@ name = "generate"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 indoc = "2.0.7"
 rag-core = { path = "../rag-core" }

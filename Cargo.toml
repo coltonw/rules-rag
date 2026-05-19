@@ -6,3 +6,21 @@ default-members = ["crates/cli"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+
+# Library-API hygiene lints. Not a published library; revisit if that changes.
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+doc_markdown = "allow"
+
+# Fires on async fns whose futures aren't `Send` because of upstream types
+# (e.g. lance internals). Not actionable until we actually spawn across threads.
+future_not_send = "allow"
+
+# `usize as f32` is unavoidable doing math on collection lengths/ranks; the
+# precision loss is real but only matters for >2^23 values.
+cast_precision_loss = "allow"
