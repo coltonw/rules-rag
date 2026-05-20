@@ -11,7 +11,7 @@ use ingest::manifest::DocMeta;
 use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
 use pipeline::{FullContextPipeline, NaivePipeline};
 use rag_core::{Chunk, Embedder as _, Generator as _, Pipeline, QueryOptions, Store as _};
-use retrieve::{DenseRetriever, Retriever, SparseRetriever};
+use retrieve::{DenseRetriever, HybridRetriever, Retriever, SparseRetriever};
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -53,7 +53,7 @@ enum Command {
         #[arg(long)]
         no_game_filter: bool,
 
-        #[arg(long, value_enum, default_value_t = RetrieverKind::Dense)]
+        #[arg(long, value_enum, default_value_t = RetrieverKind::Hybrid)]
         retriever: RetrieverKind,
 
         #[arg(short = 'p', long, value_enum, default_value_t = PipelineOption::Naive)]
@@ -79,6 +79,8 @@ enum Chunker {
 
 #[derive(Copy, Clone, clap::ValueEnum)]
 enum RetrieverKind {
+    #[value(alias = "h")]
+    Hybrid,
     #[value(alias = "d")]
     Dense,
     #[value(alias = "s")]
@@ -96,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let default_level = match cli.verbose {
         0 => "warn",
-        1 => "info",
+        1 => "info,lance=warn,lancedb=warn",
         2 => "debug",
         _ => "trace",
     };
@@ -105,7 +107,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
     let table_name = match cli.chunker {
-        Chunker::Fixed51264 => "chunks_fixed_512_64", // default
+        Chunker::Fixed51264 => "chunks_fixed_512_64",
         Chunker::Paragraph => "chunks_paragraph",
     };
 
@@ -133,6 +135,7 @@ async fn main() -> anyhow::Result<()> {
             }
             let apply_game_filter = !no_game_filter;
             let retriever = match retriever_kind {
+                RetrieverKind::Hybrid => Retriever::Hybrid(HybridRetriever::new(store, embedder)),
                 RetrieverKind::Dense => Retriever::Dense(DenseRetriever::new(store, embedder)),
                 RetrieverKind::Sparse => Retriever::Sparse(SparseRetriever::new(store)),
             };

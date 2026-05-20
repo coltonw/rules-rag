@@ -16,11 +16,48 @@ Better retrieval quality, scale to the whole collection.
 
 ### 2.3 — RRF + per-game filter
 
-`HybridRetriever` runs vector + BM25 in parallel, fuses with Reciprocal
-Rank Fusion (`score = Σ 1/(k + rank_i)`, k≈60). Per-query metadata filter
-on `game`. Hybrid search should meaningfully improve recall on queries
-with specific game terms ("Longest Road", "Knight card") while vector
-search wins on paraphrased questions — the eval will show which.
+`HybridRetriever` runs vector + BM25 in parallel, fuses with RRF, and
+constrains results to the relevant game when the question is about one.
+Three independently shippable sub-phases.
+
+#### 2.3.1 — RRF fusion
+
+Reciprocal Rank Fusion: `score = Σ 1/(k + rank_i)`, k≈60. Both rankers
+(vector + BM25) produce a top-N; RRF combines them by rank, not score,
+so the two scales don't need to be comparable. Hybrid should
+meaningfully improve recall on queries with specific game terms
+("Longest Road", "Knight card") while vector search wins on paraphrased
+questions — the eval will show which.
+
+#### 2.3.2 — Per-game filter via explicit arg
+
+Plumb `game: Option<String>` through `Query` → `Retriever::search` →
+`VectorStore::search`. LanceDB applies it as a `WHERE game = ?`
+pre-filter alongside the vector/BM25 scoring. Wire `ask --game <name>`
+so eval rows and manual testing can pass the game directly. Hard filter
+for now (filter or return nothing); soft-boost variants are a later
+question.
+
+This split exists so the eval loop stays fast in 2.3.3 — gold rows pass
+the game label directly and skip the classifier.
+
+#### 2.3.3 — LLM game classifier
+
+Small Ollama call mapping the question to `Option<game_name>` from a
+known set, run in parallel with the query embedding so its latency
+mostly hides. Constrained output (JSON or a single token drawn from the
+enum). When `--game` is provided, skip the classifier; otherwise its
+output populates the filter. Decide explicitly what `None` means — no
+filter, or refuse to answer.
+
+First taste of **structured output** in the project — distinct from
+3.1's query *rewriting* (which reshapes text for better ranking)
+because routing extracts a structured filter that prunes the search
+space deterministically. Complementary, could share an LLM call later;
+keeping them separate keeps the learning distinct.
+
+Adds `classifier_correct: bool` to the eval so routing accuracy is
+measured independently of retrieval quality.
 
 ---
 
