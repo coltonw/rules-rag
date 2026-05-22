@@ -38,16 +38,24 @@ enum Command {
     Ingest {
         /// The files to ingest.
         paths: Vec<PathBuf>,
+
         /// Game name.
         #[arg(short, long)]
         game: Option<String>,
     },
     /// Ask the chatbot a rules question.
-    Ask { question: String },
+    Ask {
+        question: String,
+
+        /// Game name.
+        #[arg(short, long)]
+        game: Option<String>,
+    },
     /// Run the chatbot eval.
     Eval {
         #[arg(short, long)]
         retrieval_only: bool,
+
         /// Disable the per-question game metadata filter so retrieval runs across
         /// all games. Measures cross-game disambiguation pressure.
         #[arg(long)]
@@ -118,7 +126,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Ingest { paths, game } => {
             run_ingest(cli.chunker, embedder, store, paths, game).await
         }
-        Command::Ask { question } => run_ask(embedder, store, question).await,
+        Command::Ask { question, game } => run_ask(embedder, store, question, game).await,
         Command::Eval {
             retrieval_only,
             no_game_filter,
@@ -250,6 +258,7 @@ async fn run_ask(
     embedder: OllamaEmbedder,
     store: LanceStore,
     question: String,
+    game: Option<String>,
 ) -> anyhow::Result<()> {
     let retriever = Retriever::Dense(DenseRetriever::new(store, embedder));
     let generator = OllamaGenerator::new();
@@ -260,7 +269,7 @@ async fn run_ask(
             &question,
             &QueryOptions {
                 top_k: 5,
-                ..Default::default()
+                game_filter: game,
             },
         )
         .await?;
