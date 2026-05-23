@@ -247,6 +247,16 @@ impl<P: Pipeline> PipelineEvaluator<P> {
     }
 
     #[allow(clippy::too_many_lines)]
+    #[tracing::instrument(
+        level = "info",
+        name = "pipeline_eval",
+        skip(self),
+        fields(
+            apply_game_filter = self.apply_game_filter,
+            n_tags = self.tag_filters.len(),
+            limit = ?self.limit,
+        ),
+    )]
     pub async fn run(&self) -> Result<FullEvaluation, EvalError> {
         let examples = get_golden_set(Path::new("./data/eval/golden.jsonl"))?
             .into_iter()
@@ -410,6 +420,16 @@ impl<R: Retrieve> RetrievalEvaluator<R> {
         }
     }
 
+    #[tracing::instrument(
+        level = "info",
+        name = "retrieval_eval",
+        skip(self),
+        fields(
+            apply_game_filter = self.apply_game_filter,
+            n_tags = self.tag_filters.len(),
+            limit = ?self.limit,
+        ),
+    )]
     pub async fn run(&self) -> Result<RetrievalEvaluation, EvalError> {
         let examples = get_golden_set(Path::new("./data/eval/golden.jsonl"))?
             .into_iter()

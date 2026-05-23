@@ -89,12 +89,20 @@ impl FixedSizeChunker {
 }
 
 impl Chunker for FixedSizeChunker {
+    #[tracing::instrument(
+        level = "debug",
+        name = "fixed_chunk",
+        skip(self),
+        fields(path = %text_path.display(), size = self.size, overlap = self.overlap),
+    )]
     fn chunk(&self, text_path: &Path) -> Result<Vec<RawChunk>, IngestError> {
         let text = read_to_string(text_path).map_err(|e| IngestError::ReadFile {
             path: text_path.to_path_buf(),
             source: e,
         })?;
-        Ok(self.chunk_text(&text))
+        let chunks = self.chunk_text(&text);
+        tracing::debug!(n_chunks = chunks.len(), text_len = text.len(), "fixed chunker done");
+        Ok(chunks)
     }
 }
 
@@ -399,12 +407,25 @@ impl ParagraphChunker {
 }
 
 impl Chunker for ParagraphChunker {
+    #[tracing::instrument(
+        level = "debug",
+        name = "paragraph_chunk",
+        skip(self),
+        fields(
+            path = %text_path.display(),
+            min_size = self.min_size,
+            target_size = self.target_size,
+            max_size = self.max_size,
+        ),
+    )]
     fn chunk(&self, text_path: &Path) -> Result<Vec<RawChunk>, IngestError> {
         let text = read_to_string(text_path).map_err(|e| IngestError::ReadFile {
             path: text_path.to_path_buf(),
             source: e,
         })?;
-        Ok(self.chunk_text(&text))
+        let chunks = self.chunk_text(&text);
+        tracing::debug!(n_chunks = chunks.len(), text_len = text.len(), "paragraph chunker done");
+        Ok(chunks)
     }
 }
 

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use embed::OllamaEmbedder;
 use rag_core::{Embedder, QueryOptions, RetrievalResult, Retrieve, Store};
 use store::LanceStore;
+use tracing::{debug, instrument};
 
 #[derive(thiserror::Error, Debug)]
 pub enum RetrieveError {
@@ -26,6 +27,16 @@ impl DenseRetriever {
 
 impl Retrieve for DenseRetriever {
     type Error = RetrieveError;
+    #[instrument(
+        level = "debug",
+        name = "dense_retrieve",
+        skip_all,
+        fields(
+            q_len = question.len(),
+            top_k = options.top_k,
+            game = options.game_filter.as_deref().unwrap_or(""),
+        ),
+    )]
     async fn retrieve(
         &self,
         question: &str,
@@ -36,6 +47,7 @@ impl Retrieve for DenseRetriever {
             .query_vector(&self.embedder.embed_one(question).await?, options)
             .await?;
 
+        debug!(n_results = results.len(), "dense retrieve done");
         Ok(results)
     }
 }
@@ -52,6 +64,16 @@ impl SparseRetriever {
 
 impl Retrieve for SparseRetriever {
     type Error = RetrieveError;
+    #[instrument(
+        level = "debug",
+        name = "sparse_retrieve",
+        skip_all,
+        fields(
+            q_len = question.len(),
+            top_k = options.top_k,
+            game = options.game_filter.as_deref().unwrap_or(""),
+        ),
+    )]
     async fn retrieve(
         &self,
         question: &str,
@@ -59,6 +81,7 @@ impl Retrieve for SparseRetriever {
     ) -> Result<Vec<RetrievalResult>, RetrieveError> {
         let results = self.store.query_fts(question, options).await?;
 
+        debug!(n_results = results.len(), "sparse retrieve done");
         Ok(results)
     }
 }
@@ -76,6 +99,16 @@ impl HybridRetriever {
 
 impl Retrieve for HybridRetriever {
     type Error = RetrieveError;
+    #[instrument(
+        level = "debug",
+        name = "hybrid_retrieve",
+        skip_all,
+        fields(
+            q_len = question.len(),
+            top_k = options.top_k,
+            game = options.game_filter.as_deref().unwrap_or(""),
+        ),
+    )]
     async fn retrieve(
         &self,
         question: &str,
@@ -86,11 +119,14 @@ impl Retrieve for HybridRetriever {
         let fts_query = self.store.query_fts(question, options);
         let (vector_results, fts_results) = tokio::try_join!(vector_query, fts_query)?;
 
+        let n_vector = vector_results.len();
+        let n_fts = fts_results.len();
         let results: Vec<RetrievalResult> = rrf(vector_results, fts_results)
             .into_iter()
             .take(options.top_k)
             .collect();
 
+        debug!(n_vector, n_fts, n_results = results.len(), "hybrid retrieve done");
         Ok(results)
     }
 }

@@ -75,12 +75,17 @@ pub trait Store: Sized {
         text: &str,
         options: &QueryOptions,
     ) -> Result<Vec<RetrievalResult>, Self::Error>;
+    async fn games(&self) -> Result<Vec<String>, Self::Error>;
 }
 
 pub trait GameClassifier {
     type Error: std::error::Error + Send + Sync + 'static;
     fn new() -> Self;
-    async fn classify(&self, query: &str, games: &[&str]) -> Result<Option<String>, Self::Error>;
+    async fn classify(
+        &self,
+        query: &str,
+        games: &[impl AsRef<str>],
+    ) -> Result<Option<String>, Self::Error>;
 }
 
 pub trait Embedder {

@@ -1,16 +1,18 @@
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
-use arrow_array::{Array, Float32Array, RecordBatch};
+use arrow_array::{Array, Float32Array, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, FieldRef, Schema};
 use futures::TryStreamExt as _;
 use lancedb::index::scalar::{FtsIndexBuilder, FullTextSearchQuery};
 use lancedb::index::{Index, IndexType};
-use lancedb::query::{ExecutableQuery, QueryBase};
+use lancedb::query::{ExecutableQuery, QueryBase, Select};
 use lancedb::{DistanceType, Table, connect};
 use rag_core::{Chunk, EMBED_DIM, QueryOptions, RetrievalResult, Store};
 use serde_arrow::schema::{SchemaLike, TracingOptions};
 use serde_arrow::{from_record_batch, to_record_batch};
+use tracing::{debug, info, instrument};
 
 pub use arrow_array;
 pub use arrow_schema;
@@ -73,6 +75,7 @@ impl LanceStore {
 impl Store for LanceStore {
     type Error = StoreError;
 
+    #[instrument(level = "info", skip_all, fields(path = %path.display(), table_name))]
     async fn connect(path: &Path, table_name: &str) -> Result<Self, StoreError> {
         let connection = connect(path.to_str().expect("DB path must be UTF-8"))
             .execute()
@@ -85,6 +88,7 @@ impl Store for LanceStore {
 
         let table = match connection.open_table(table_name).execute().await {
             Ok(table) => {
+                debug!("opened existing table");
                 // We want to add the index to tables that already exist in case they were made before this index was first added
                 let indices = table.list_indices().await.map_err(|e| StoreError::Lance {
                     op: "list indices",
@@ -92,6 +96,7 @@ impl Store for LanceStore {
                 })?;
                 let has_fts = indices.iter().any(|idx| idx.index_type == IndexType::FTS);
                 if !has_fts {
+                    info!("backfilling FTS index on existing table");
                     table
                         .create_index(&["text"], Index::FTS(FtsIndexBuilder::default()))
                         .execute()
@@ -103,14 +108,17 @@ impl Store for LanceStore {
                 }
                 table
             }
-            Err(lancedb::Error::TableNotFound { .. }) => connection
-                .create_empty_table(table_name, schema.clone())
-                .execute()
-                .await
-                .map_err(|e| StoreError::Lance {
-                    op: "create table",
-                    source: e,
-                })?,
+            Err(lancedb::Error::TableNotFound { .. }) => {
+                info!("table not found, creating");
+                connection
+                    .create_empty_table(table_name, schema.clone())
+                    .execute()
+                    .await
+                    .map_err(|e| StoreError::Lance {
+                        op: "create table",
+                        source: e,
+                    })?
+            }
             Err(unknown) => {
                 return Err(StoreError::Lance {
                     op: "open table",
@@ -135,6 +143,7 @@ impl Store for LanceStore {
         Ok(Self { table, schema })
     }
 
+    #[instrument(level = "debug", skip_all, fields(n_chunks = chunks.len()))]
     async fn insert(&self, chunks: &[Chunk]) -> Result<(), StoreError> {
         self.table
             .add(self.chunks_to_records(chunks))
@@ -147,6 +156,7 @@ impl Store for LanceStore {
         Ok(())
     }
 
+    #[instrument(level = "info", skip_all)]
     async fn update_indices(&self) -> Result<(), StoreError> {
         self.table
             .create_index(&["text"], Index::FTS(FtsIndexBuilder::default()))
@@ -160,6 +170,14 @@ impl Store for LanceStore {
         Ok(())
     }
 
+    #[instrument(
+        level = "debug",
+        skip_all,
+        fields(
+            top_k = options.top_k,
+            game = options.game_filter.as_deref().unwrap_or(""),
+        ),
+    )]
     async fn query_vector(
         &self,
         embedding: &[f32],
@@ -178,9 +196,20 @@ impl Store for LanceStore {
 
         let batches = filter_and_execute_helper(query, options).await?;
 
-        Ok(records_to_results_vector(batches))
+        let results = records_to_results_vector(batches);
+        debug!(n_results = results.len(), "vector query done");
+        Ok(results)
     }
 
+    #[instrument(
+        level = "debug",
+        skip_all,
+        fields(
+            top_k = options.top_k,
+            game = options.game_filter.as_deref().unwrap_or(""),
+            text_len = text.len(),
+        ),
+    )]
     async fn query_fts(
         &self,
         text: &str,
@@ -194,7 +223,45 @@ impl Store for LanceStore {
 
         let batches = filter_and_execute_helper(query, options).await?;
 
-        Ok(records_to_results_fts(batches))
+        let results = records_to_results_fts(batches);
+        debug!(n_results = results.len(), "fts query done");
+        Ok(results)
+    }
+
+    #[instrument(level = "debug", skip_all)]
+    async fn games(&self) -> Result<Vec<String>, StoreError> {
+        let query = self
+            .table
+            .query()
+            .select(Select::Columns(vec!["game".into()]));
+
+        let results = query.execute().await.map_err(|e| StoreError::Lance {
+            op: "execute query",
+            source: e,
+        })?;
+
+        let batches: Vec<RecordBatch> =
+            results.try_collect().await.map_err(|e| StoreError::Lance {
+                op: "collect query results",
+                source: e,
+            })?;
+
+        let mut games_set: HashSet<String> = HashSet::new();
+
+        for batch in batches {
+            let games_batch: &StringArray = col_as(&batch, "game");
+            // let games_batch = from_record_batch::<Vec<String>>(&batch)
+            //     .expect("failed to deserialize records into game strings");
+            for game in games_batch.into_iter().flatten() {
+                games_set.insert(game.to_string());
+            }
+        }
+
+        let mut games: Vec<String> = games_set.into_iter().collect();
+        games.sort();
+
+        debug!(n_games = games.len(), "games listed");
+        Ok(games)
     }
 }
 

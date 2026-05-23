@@ -10,12 +10,33 @@ use ingest::ParagraphChunker;
 use ingest::manifest::DocMeta;
 use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
 use pipeline::{FullContextPipeline, NaivePipeline};
-use rag_core::{Chunk, Embedder as _, Generator as _, Pipeline, QueryOptions, Store as _};
+use rag_core::{
+    Chunk, Embedder as _, GameClassifier, Generator as _, Pipeline, QueryOptions, Store as _,
+};
 use retrieve::{DenseRetriever, HybridRetriever, Retriever, SparseRetriever};
+use route::OllamaGameClassifier;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use store::LanceStore;
+use tracing::{info, instrument};
+use tracing_subscriber::fmt::format::FmtSpan;
+
+/// Noisy third-party crates kept at `warn` regardless of `-v`. Adding to this
+/// list is cheaper than adding `RUST_LOG=…=warn` to every invocation. If a new
+/// dependency starts flooding the log, append it here.
+const NOISY_LIBS: &str = concat!(
+    "lance=warn,lancedb=warn,lance_core=warn,lance_table=warn,lance_index=warn,",
+    "lance_io=warn,lance_encoding=warn,lance_file=warn,lance_arrow=warn,",
+    "lance_datafusion=warn,datafusion=warn,datafusion_common=warn,",
+    "datafusion_execution=warn,datafusion_expr=warn,datafusion_optimizer=warn,",
+    "datafusion_physical_expr=warn,datafusion_physical_plan=warn,",
+    "datafusion_sql=warn,datafusion_functions=warn,arrow=warn,arrow_array=warn,",
+    "arrow_buffer=warn,arrow_data=warn,arrow_schema=warn,arrow_select=warn,",
+    "arrow_cast=warn,arrow_ipc=warn,arrow_string=warn,object_store=warn,",
+    "hyper=warn,hyper_util=warn,reqwest=warn,h2=warn,rustls=warn,tower=warn,",
+    "tokio_util=warn,mio=warn",
+);
 
 /// A board game rules chatbot
 #[derive(Parser)]
@@ -105,14 +126,17 @@ enum PipelineOption {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let default_level = match cli.verbose {
-        0 => "warn",
-        1 => "info,lance=warn,lancedb=warn",
-        2 => "debug",
-        _ => "trace",
+        0 => format!("warn,{NOISY_LIBS}"),
+        1 => format!("info,{NOISY_LIBS}"),
+        2 => format!("debug,{NOISY_LIBS}"),
+        _ => format!("trace,{NOISY_LIBS}"),
     };
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(default_level));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_span_events(FmtSpan::CLOSE)
+        .init();
 
     let table_name = match cli.chunker {
         Chunker::Fixed51264 => "chunks_fixed_512_64",
@@ -156,6 +180,7 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
+#[instrument(skip_all, fields(n_paths = paths.len(), game = game.as_deref().unwrap_or("")))]
 async fn run_ingest(
     chunker_choice: Chunker,
     embedder: OllamaEmbedder,
@@ -192,7 +217,14 @@ async fn run_ingest(
             })
             .collect::<anyhow::Result<Vec<_>>>()?
     };
+    info!(n_docs = to_ingest.len(), "starting ingest");
     for doc_meta in &to_ingest {
+        info!(
+            game = %doc_meta.game,
+            doc_type = %doc_meta.doc_type,
+            file = %doc_meta.file.display(),
+            "ingesting doc"
+        );
         let raw_chunks = match chunker_choice {
             Chunker::Fixed51264 => {
                 let chunker = FixedSizeChunker {
@@ -241,6 +273,7 @@ async fn run_ingest(
                 embedding: Some(embedding),
             });
         }
+        info!(n_chunks = chunks.len(), "doc chunked and embedded");
         store
             .insert(&chunks)
             .await
@@ -254,16 +287,30 @@ async fn run_ingest(
     Ok(())
 }
 
+#[instrument(skip(embedder, store), fields(q_len = question.len(), game = game.as_deref().unwrap_or("")))]
 async fn run_ask(
     embedder: OllamaEmbedder,
     store: LanceStore,
     question: String,
     game: Option<String>,
 ) -> anyhow::Result<()> {
+    let game_classifier = OllamaGameClassifier::new();
+
+    let game = if let Some(g) = game {
+        Some(g)
+    } else {
+        let games = store.games().await?;
+        let classified = game_classifier.classify(&question, &games).await?;
+        info!(
+            classified = classified.as_deref().unwrap_or("<none>"),
+            "game classified"
+        );
+        classified
+    };
+
     let retriever = Retriever::Dense(DenseRetriever::new(store, embedder));
     let generator = OllamaGenerator::new();
     let pipeline = NaivePipeline::new(retriever, generator);
-
     let answer = pipeline
         .ask(
             &question,
@@ -277,6 +324,7 @@ async fn run_ask(
     Ok(())
 }
 
+#[instrument(skip(retriever), fields(apply_game_filter, n_tags = only.len(), limit))]
 async fn run_retrieval_eval(
     retriever: Retriever,
     apply_game_filter: bool,
@@ -349,6 +397,7 @@ async fn run_retrieval_eval(
     Ok(())
 }
 
+#[instrument(skip(retriever, pipeline), fields(apply_game_filter, n_tags = only.len(), limit))]
 async fn run_pipeline_eval(
     retriever: Retriever,
     pipeline: PipelineOption,

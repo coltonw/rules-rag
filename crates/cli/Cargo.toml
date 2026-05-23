@@ -16,6 +16,8 @@ ingest = { path = "../ingest" }
 pipeline = { path = "../pipeline" }
 rag-core = { path = "../rag-core" }
 retrieve = { path = "../retrieve" }
+route = { path = "../route" }
 store = { path = "../store" }
 tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread"] }
+tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

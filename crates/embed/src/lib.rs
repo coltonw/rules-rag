@@ -1,7 +1,7 @@
 use rag_core::Embedder;
 use reqwest::Client;
 use std::time::Duration;
-use tracing::debug;
+use tracing::{debug, instrument};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EmbedError {
@@ -45,6 +45,7 @@ impl Embedder for OllamaEmbedder {
         }
     }
 
+    #[instrument(level = "debug", skip_all, fields(n_inputs = inputs.len(), model = %self.model))]
     async fn embed(&self, inputs: &[impl AsRef<str>]) -> Result<Vec<Vec<f32>>, EmbedError> {
         let inputs: Vec<&str> = inputs.iter().map(AsRef::as_ref).collect();
         let resp: EmbedResponse = self

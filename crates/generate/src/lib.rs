@@ -2,7 +2,7 @@ use indoc::formatdoc;
 use rag_core::{Generator, RetrievalResult};
 use reqwest::Client;
 use std::time::Duration;
-use tracing::{debug, info};
+use tracing::{debug, instrument, trace};
 
 #[derive(Debug, thiserror::Error)]
 pub enum GenerateError {
@@ -123,7 +123,7 @@ fn prompt(query: &str, retrieval: &[RetrievalResult]) -> String {
         chunks = chunks
     };
 
-    info!(prompt = final_prompt, "prompt sent to llm");
+    trace!(prompt = final_prompt, "prompt sent to llm");
 
     final_prompt
 }
@@ -140,6 +140,11 @@ impl Generator for OllamaGenerator {
         }
     }
 
+    #[instrument(
+        level = "debug",
+        skip_all,
+        fields(q_len = query.len(), n_retrieval = retrieval.len(), model = %self.model),
+    )]
     async fn generate(
         &self,
         query: &str,

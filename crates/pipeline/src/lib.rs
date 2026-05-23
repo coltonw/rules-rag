@@ -6,6 +6,7 @@ use ingest::manifest::read_manifest;
 use rag_core::{Chunk, Generator, Pipeline, QueryOptions, RetrievalResult, Retrieve as _};
 use retrieve::Retriever;
 use std::fs::read_to_string;
+use tracing::{debug, info, instrument};
 
 #[derive(thiserror::Error, Debug)]
 pub enum PipelineError {
@@ -39,6 +40,16 @@ impl NaivePipeline {
 
 impl Pipeline for NaivePipeline {
     type Error = PipelineError;
+    #[instrument(
+        level = "info",
+        name = "naive_retrieve",
+        skip_all,
+        fields(
+            q_len = question.len(),
+            top_k = options.top_k,
+            game = options.game_filter.as_deref().unwrap_or(""),
+        ),
+    )]
     async fn retrieve(
         &self,
         question: &str,
@@ -46,9 +57,16 @@ impl Pipeline for NaivePipeline {
     ) -> Result<Vec<RetrievalResult>, PipelineError> {
         let results = self.retriever.retrieve(question, options).await?;
 
+        info!(n_results = results.len(), "retrieved");
         Ok(results)
     }
 
+    #[instrument(
+        level = "info",
+        name = "naive_ask_with",
+        skip_all,
+        fields(q_len = question.len(), n_results = results.len()),
+    )]
     async fn ask_with(
         &self,
         question: &str,
@@ -56,6 +74,7 @@ impl Pipeline for NaivePipeline {
     ) -> Result<String, PipelineError> {
         let answer = self.generator.generate(question, results).await?;
 
+        info!(answer_len = answer.len(), "generated");
         Ok(answer)
     }
 }
@@ -72,6 +91,12 @@ impl FullContextPipeline {
 
 impl Pipeline for FullContextPipeline {
     type Error = PipelineError;
+    #[instrument(
+        level = "info",
+        name = "full_context_retrieve",
+        skip_all,
+        fields(game = options.game_filter.as_deref().unwrap_or("")),
+    )]
     async fn retrieve(
         &self,
         _question: &str,
@@ -91,6 +116,7 @@ impl Pipeline for FullContextPipeline {
             source: e,
         })?;
 
+        debug!(file = %metadata.file.display(), text_len = text.len(), "loaded full context");
         Ok(vec![RetrievalResult {
             chunk: Chunk {
                 id: metadata.game.clone(),
@@ -104,6 +130,12 @@ impl Pipeline for FullContextPipeline {
         }])
     }
 
+    #[instrument(
+        level = "info",
+        name = "full_context_ask_with",
+        skip_all,
+        fields(q_len = question.len(), n_results = results.len()),
+    )]
     async fn ask_with(
         &self,
         question: &str,
@@ -111,6 +143,7 @@ impl Pipeline for FullContextPipeline {
     ) -> Result<String, PipelineError> {
         let answer = self.generator.generate(question, results).await?;
 
+        info!(answer_len = answer.len(), "generated");
         Ok(answer)
     }
 }
