@@ -33,7 +33,7 @@ fn schema(games: &[&str]) -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {
-            "distinguishing_token": {
+            "named_game_substring": {
                 "type": ["string", "null"]
             },
             "game": {
@@ -41,7 +41,7 @@ fn schema(games: &[&str]) -> serde_json::Value {
                 "enum": variants
             }
         },
-        "required": ["distinguishing_token", "game"],
+        "required": ["named_game_substring", "game"],
         "additionalProperties": false
     })
 }
@@ -77,97 +77,55 @@ fn classify_prompt(query: &str, games: &[&str]) -> String {
         <example>
         <user_question>How does the robber work in Catan?</user_question>
         <answer>
-        {"distinguishing_token": "Catan", "game": "Catan"}
+        {"named_game_substring": "Catan", "game": "Catan"}
         </answer>
         </example>
         <example>
-        <user_question>When do I draw infection cards from the bottom of the deck?</user_question>
+        <user_question>In Pandemic, how do I cure a disease?</user_question>
         <answer>
-        {"distinguishing_token": "infection cards", "game": "Pandemic"}
+        {"named_game_substring": "Pandemic", "game": "Pandemic"}
+        </answer>
+        </example>
+        <example>
+        <user_question>How does Quacks of Quedlinburg's bag-drawing work?</user_question>
+        <answer>
+        {"named_game_substring": "Quacks of Quedlinburg", "game": "The Quacks of Quedlinburg"}
         </answer>
         </example>
         <example>
         <user_question>What chips do I start the game with in my bag?</user_question>
         <answer>
-        {"distinguishing_token": "chips ... bag", "game": "The Quacks of Quedlinburg"}
+        {"named_game_substring": null, "game": null}
         </answer>
         </example>
         <example>
         <user_question>How do I claim a Place of Power?</user_question>
         <answer>
-        {"distinguishing_token": "Place of Power", "game": "Res Arcana"}
+        {"named_game_substring": null, "game": null}
         </answer>
         </example>
         <example>
         <user_question>How does the Medic's ability work?</user_question>
         <answer>
-        {"distinguishing_token": "Medic", "game": "Pandemic"}
-        </answer>
-        </example>
-        <example>
-        <user_question>How many cards should I draw at the start?</user_question>
-        <answer>
-        {"distinguishing_token": null, "game": null}
+        {"named_game_substring": null, "game": null}
         </answer>
         </example>
         <example>
         <user_question>How are victory points scored?</user_question>
         <answer>
-        {"distinguishing_token": null, "game": null}
-        </answer>
-        </example>
-        <example>
-        <user_question>How many rounds are in the game?</user_question>
-        <answer>
-        {"distinguishing_token": null, "game": null}
+        {"named_game_substring": null, "game": null}
         </answer>
         </example>
         <example>
         <user_question>How many turns are in a game?</user_question>
         <answer>
-        {"distinguishing_token": null, "game": null}
+        {"named_game_substring": null, "game": null}
         </answer>
         </example>
         <example>
-        <user_question>What does each player start with?</user_question>
+        <user_question>What is a Sacred Site?</user_question>
         <answer>
-        {"distinguishing_token": null, "game": null}
-        </answer>
-        </example>
-        <example>
-        <user_question>What does each mage start with?</user_question>
-        <answer>
-        {"distinguishing_token": null, "game": null}
-        </answer>
-        </example>
-        <example>
-        <user_question>How can the players lose?</user_question>
-        <answer>
-        {"distinguishing_token": null, "game": null}
-        </answer>
-        </example>
-        <example>
-        <user_question>Can I trade resources with other players?</user_question>
-        <answer>
-        {"distinguishing_token": null, "game": null}
-        </answer>
-        </example>
-        <example>
-        <user_question>How does the game end?</user_question>
-        <answer>
-        {"distinguishing_token": null, "game": null}
-        </answer>
-        </example>
-        <example>
-        <user_question>When do I reveal an action card?</user_question>
-        <answer>
-        {"distinguishing_token": null, "game": null}
-        </answer>
-        </example>
-        <example>
-        <user_question>How many people figures can I place on the hunt?</user_question>
-        <answer>
-        {"distinguishing_token": null, "game": null}
+        {"named_game_substring": null, "game": null}
         </answer>
         </example>
     "#};
@@ -175,12 +133,11 @@ fn classify_prompt(query: &str, games: &[&str]) -> String {
     let games_list = games.join("\n");
 
     formatdoc! {"
-        Identify which board game the user's question is about. Return your answer as JSON matching the schema and examples below.
+        Identify which board game the user's question is about. Return JSON matching the schema.
 
-        Process:
-        1. Look for a distinguishing token in the question — a proper noun, named mechanic, or named component that uniquely identifies ONE game in the list (e.g. \"Research Station\" → Pandemic, \"robber\" → Catan, \"rat-tails\" → Quacks of Quedlinburg). Copy that exact substring into distinguishing_token.
-        2. If no such token exists, set distinguishing_token to null AND game to null. Generic vocabulary (rounds, turns, actions, players, cards, draw, scoring, victory points, end of game, setup, trading) is NOT a distinguishing token. Vague theme words (\"mage\", \"potion\", \"hut\", \"hunt\", \"cooperative\") are NOT distinguishing tokens.
-        3. If distinguishing_token is non-null, set game to the matching game from the list.
+        Rule: only return a game if the question contains the literal title of a game from the list as a substring (or an unambiguous shortening of it — e.g. \"Quacks\" for \"The Quacks of Quedlinburg\", \"Lorcana\" for \"Disney Lorcana\"). Copy that substring into named_game_substring.
+
+        If the question does NOT contain a game title, return null for both fields — regardless of how strongly its mechanics, components, or theme might suggest a particular game. Mechanics like \"Place of Power\", roles like \"Medic\", and components like \"flask\" are NOT game titles. Theme words and city names are NOT game titles.
 
         A null game falls back safely. A wrong game scrubs the correct rules. When in doubt, return null.
 
@@ -288,6 +245,6 @@ impl GameClassifier for OllamaGameClassifier {
 struct OllamaGameResponse {
     #[allow(dead_code)]
     #[serde(default)]
-    distinguishing_token: Option<String>,
+    named_game_substring: Option<String>,
     game: Option<String>,
 }
