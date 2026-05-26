@@ -82,6 +82,10 @@ pub struct FullEvaluation {
 #[derive(Serialize)]
 pub struct RoutingRatios {
     pub accuracy: f32,
+    /// Fraction of examples where the classifier returned `Some(g)` but `g`
+    /// didn't match the expected game. Covers both wrong-game picks and
+    /// extraneous filtering of examples whose expected game is `None`.
+    pub false_positive_rate: f32,
     pub elapsed_millis_p50: u64,
     pub elapsed_millis_p95: u64,
 }
@@ -752,7 +756,12 @@ fn percentiles<I: IntoIterator<Item = usize>>(values: I) -> (usize, usize) {
 fn summarize_routing(metrics: &[&RoutingMetrics]) -> RoutingRatios {
     let total = metrics.len();
     let correct = metrics.iter().filter(|m| m.correct).count();
+    let false_positives = metrics
+        .iter()
+        .filter(|m| !m.correct && m.classified.is_some())
+        .count();
     let accuracy = ratio(correct as f32, total);
+    let false_positive_rate = ratio(false_positives as f32, total);
     let mut elapsed_sorted: Vec<u64> = metrics.iter().map(|m| m.elapsed_millis).collect();
     elapsed_sorted.sort_unstable();
     let elapsed_millis_p50 = elapsed_sorted
@@ -765,6 +774,7 @@ fn summarize_routing(metrics: &[&RoutingMetrics]) -> RoutingRatios {
         .unwrap_or_default();
     RoutingRatios {
         accuracy,
+        false_positive_rate,
         elapsed_millis_p50,
         elapsed_millis_p95,
     }
@@ -1019,7 +1029,7 @@ mod tests {
             ("Pandemic", "data/pdfs/pandemic.txt"),
             ("Challengers!", "data/pdfs/challengers-rulebook.txt"),
             (
-                "The Quacks of Quedlinberg",
+                "The Quacks of Quedlinburg",
                 "data/pdfs/the-quacks-of-quedlinburg-rulebook.txt",
             ),
         ]

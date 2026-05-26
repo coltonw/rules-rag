@@ -471,6 +471,10 @@ async fn run_pipeline_eval(
 
 fn print_routing_ratios(ratios: &RoutingRatios) {
     println!("Classifier accuracy:  {:.1}%", ratios.accuracy * 100.0);
+    println!(
+        "Classifier false positive rate:  {:.1}%",
+        ratios.false_positive_rate * 100.0
+    );
     println!("Routing latency:");
     println!("  - p50: {:.1}ms", ratios.elapsed_millis_p50);
     println!("  - p95: {:.1}ms", ratios.elapsed_millis_p95);
