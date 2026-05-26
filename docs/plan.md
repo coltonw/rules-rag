@@ -1,7 +1,8 @@
 # RAG plan
 
 Where we are: Phase 1 done (naive end-to-end), all phases 1.x done (eval
-improvements), and phase 2.1-2.2 done. Phase 2.3 is up next.
+improvements), all of phase 2 done (hybrid search and game classifier).
+Phase 3 is up next.
 
 Conventions: each phase ends with re-running the eval so we can measure
 whether the new technique actually helped. Each subphase should be small

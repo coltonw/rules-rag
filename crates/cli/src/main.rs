@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use embed::OllamaEmbedder;
 use eval::{
     FullEvaluation, FullOutcome, GenerationMetrics, PipelineEvaluator, RetrievalEvaluator,
-    RetrievalMetrics, RetrievalOutcome, RetrievalRatios,
+    RetrievalMetrics, RetrievalOutcome, RetrievalRatios, RoutingRatios,
 };
 use generate::OllamaGenerator;
 use ingest::ParagraphChunker;
@@ -77,10 +77,8 @@ enum Command {
         #[arg(short, long)]
         retrieval_only: bool,
 
-        /// Disable the per-question game metadata filter so retrieval runs across
-        /// all games. Measures cross-game disambiguation pressure.
-        #[arg(long)]
-        no_game_filter: bool,
+        #[arg(long, value_enum, default_value_t = CliFilterMode::Oracle)]
+        filter_mode: CliFilterMode,
 
         #[arg(long, value_enum, default_value_t = RetrieverKind::Hybrid)]
         retriever: RetrieverKind,
@@ -122,6 +120,23 @@ enum PipelineOption {
     FullContext,
 }
 
+#[derive(Copy, Clone, clap::ValueEnum)]
+enum CliFilterMode {
+    Classifier,
+    Oracle,
+    None,
+}
+
+impl From<CliFilterMode> for eval::FilterMode {
+    fn from(mode: CliFilterMode) -> Self {
+        match mode {
+            CliFilterMode::Classifier => Self::Classifier,
+            CliFilterMode::Oracle => Self::Oracle,
+            CliFilterMode::None => Self::None,
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -153,28 +168,49 @@ async fn main() -> anyhow::Result<()> {
         Command::Ask { question, game } => run_ask(embedder, store, question, game).await,
         Command::Eval {
             retrieval_only,
-            no_game_filter,
+            filter_mode,
             retriever: retriever_kind,
             pipeline,
             only,
             limit,
         } => {
-            if matches!(pipeline, PipelineOption::FullContext) && (no_game_filter || retrieval_only)
+            if matches!(pipeline, PipelineOption::FullContext)
+                && (!matches!(filter_mode, CliFilterMode::None) || retrieval_only)
             {
                 return Err(anyhow!(
-                    "Incompatible options. --pipeline full-context cannot be used with --no-game-filter or --retrieval-only."
+                    "Incompatible options. --pipeline full-context must be used with --filter-mode oracle and cannot be used with --retrieval-only."
                 ));
             }
-            let apply_game_filter = !no_game_filter;
+            let filter_mode: eval::FilterMode = filter_mode.into();
+            let classifier = OllamaGameClassifier::new();
+            let games = store.games().await?;
             let retriever = match retriever_kind {
                 RetrieverKind::Hybrid => Retriever::Hybrid(HybridRetriever::new(store, embedder)),
                 RetrieverKind::Dense => Retriever::Dense(DenseRetriever::new(store, embedder)),
                 RetrieverKind::Sparse => Retriever::Sparse(SparseRetriever::new(store)),
             };
             if retrieval_only {
-                run_retrieval_eval(retriever, apply_game_filter, only, limit, cli.verbose).await
+                run_retrieval_eval(
+                    retriever,
+                    classifier,
+                    games,
+                    filter_mode,
+                    only,
+                    limit,
+                    cli.verbose,
+                )
+                .await
             } else {
-                run_pipeline_eval(retriever, pipeline, apply_game_filter, only, limit).await
+                run_pipeline_eval(
+                    retriever,
+                    classifier,
+                    pipeline,
+                    games,
+                    filter_mode,
+                    only,
+                    limit,
+                )
+                .await
             }
         }
     }
@@ -324,17 +360,22 @@ async fn run_ask(
     Ok(())
 }
 
-#[instrument(skip(retriever), fields(apply_game_filter, n_tags = only.len(), limit))]
+#[instrument(skip(retriever, classifier, games), fields(?filter_mode, n_tags = only.len(), limit))]
 async fn run_retrieval_eval(
     retriever: Retriever,
-    apply_game_filter: bool,
+    classifier: OllamaGameClassifier,
+    games: Vec<String>,
+    filter_mode: eval::FilterMode,
     only: Vec<String>,
     limit: Option<usize>,
     verbose: u8,
 ) -> anyhow::Result<()> {
-    let evaluator = RetrievalEvaluator::new(retriever, apply_game_filter, only, limit);
+    let evaluator = RetrievalEvaluator::new(retriever, classifier, games, filter_mode, only, limit);
     let evaluation = evaluator.run().await?;
     println!("Evals run: {}", evaluation.evals.len());
+    if let Some(routing_ratios) = &evaluation.routing_ratios {
+        print_routing_ratios(routing_ratios);
+    }
     print_retrieval_ratios(&evaluation.ratios);
     if verbose > 0 {
         if evaluation.ratios.recall_at_1 < 1.0 {
@@ -360,6 +401,7 @@ async fn run_retrieval_eval(
                         found_at,
                         ..
                     },
+                ..
             } = &wrong.outcome
             {
                 if !recall_at_10 {
@@ -397,11 +439,13 @@ async fn run_retrieval_eval(
     Ok(())
 }
 
-#[instrument(skip(retriever, pipeline), fields(apply_game_filter, n_tags = only.len(), limit))]
+#[instrument(skip(retriever, classifier, pipeline, games), fields(?filter_mode, n_tags = only.len(), limit))]
 async fn run_pipeline_eval(
     retriever: Retriever,
+    classifier: OllamaGameClassifier,
     pipeline: PipelineOption,
-    apply_game_filter: bool,
+    games: Vec<String>,
+    filter_mode: eval::FilterMode,
     only: Vec<String>,
     limit: Option<usize>,
 ) -> anyhow::Result<()> {
@@ -409,18 +453,27 @@ async fn run_pipeline_eval(
     let evaluation = match pipeline {
         PipelineOption::Naive => {
             let pipeline = NaivePipeline::new(retriever, generator);
-            let evaluator = PipelineEvaluator::new(pipeline, apply_game_filter, only, limit);
+            let evaluator =
+                PipelineEvaluator::new(pipeline, classifier, games, filter_mode, only, limit);
             evaluator.run().await?
         }
         PipelineOption::FullContext => {
             let pipeline = FullContextPipeline::new(generator);
-            let evaluator = PipelineEvaluator::new(pipeline, apply_game_filter, only, limit);
+            let evaluator =
+                PipelineEvaluator::new(pipeline, classifier, games, filter_mode, only, limit);
             evaluator.run().await?
         }
     };
     print_pipeline_summary(&evaluation);
     print_pipeline_failures(&evaluation);
     Ok(())
+}
+
+fn print_routing_ratios(ratios: &RoutingRatios) {
+    println!("Classifier accuracy:  {:.1}%", ratios.accuracy * 100.0);
+    println!("Routing latency:");
+    println!("  - p50: {:.1}ms", ratios.elapsed_millis_p50);
+    println!("  - p95: {:.1}ms", ratios.elapsed_millis_p95);
 }
 
 fn print_retrieval_ratios(ratios: &RetrievalRatios) {
@@ -436,6 +489,9 @@ fn print_retrieval_ratios(ratios: &RetrievalRatios) {
 
 fn print_pipeline_summary(evaluation: &FullEvaluation) {
     println!("Evals run: {}", evaluation.evals.len());
+    if let Some(routing_ratios) = &evaluation.routing_ratios {
+        print_routing_ratios(routing_ratios);
+    }
     print_retrieval_ratios(&evaluation.retrieval_ratios);
     let gen_ratios = &evaluation.generation_ratios;
     println!("Quote match:  {:.1}%", gen_ratios.quote * 100.0);
@@ -479,6 +535,7 @@ fn print_pipeline_failures(evaluation: &FullEvaluation) {
                     ..
                 },
             answer,
+            ..
         } = &wrong.outcome
         {
             if !recall_at_5 {

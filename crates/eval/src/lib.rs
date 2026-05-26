@@ -1,5 +1,5 @@
 use futures::stream::{self, StreamExt};
-use rag_core::{Answer, Pipeline, QueryOptions, RetrievalResult, Retrieve};
+use rag_core::{Answer, GameClassifier, Pipeline, QueryOptions, RetrievalResult, Retrieve};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::read_to_string,
@@ -74,8 +74,16 @@ pub struct EvalExample {
 #[derive(Serialize)]
 pub struct FullEvaluation {
     pub evals: Vec<FullEval>,
+    pub routing_ratios: Option<RoutingRatios>,
     pub retrieval_ratios: RetrievalRatios,
     pub generation_ratios: GenerationRatios,
+}
+
+#[derive(Serialize)]
+pub struct RoutingRatios {
+    pub accuracy: f32,
+    pub elapsed_millis_p50: u64,
+    pub elapsed_millis_p95: u64,
 }
 
 #[derive(Serialize)]
@@ -112,12 +120,20 @@ pub struct FullEval {
 pub enum FullOutcome {
     Ok {
         answer: Answer,
+        routing_metrics: RoutingMetrics,
         retrieval_metrics: RetrievalMetrics,
         generation_metrics: GenerationMetrics,
     },
     Errored {
         error: Vec<String>,
     },
+}
+
+#[derive(Serialize, Default, Debug)]
+pub struct RoutingMetrics {
+    pub correct: bool,
+    pub classified: Option<String>,
+    pub elapsed_millis: u64,
 }
 
 #[derive(Serialize, Default, Debug)]
@@ -174,10 +190,12 @@ impl FullOutcome {
     pub const fn metrics(&self) -> Option<MetricsRef<'_>> {
         match self {
             Self::Ok {
+                routing_metrics,
                 retrieval_metrics,
                 generation_metrics,
                 ..
             } => Some(MetricsRef {
+                routing_metrics,
                 retr_metrics: retrieval_metrics,
                 gen_metrics: generation_metrics,
             }),
@@ -187,6 +205,7 @@ impl FullOutcome {
 }
 
 pub struct MetricsRef<'a> {
+    pub routing_metrics: &'a RoutingMetrics,
     pub retr_metrics: &'a RetrievalMetrics,
     pub gen_metrics: &'a GenerationMetrics,
 }
@@ -194,6 +213,7 @@ pub struct MetricsRef<'a> {
 #[derive(Serialize)]
 pub struct RetrievalEvaluation {
     pub evals: Vec<RetrievalEval>,
+    pub routing_ratios: Option<RoutingRatios>,
     pub ratios: RetrievalRatios,
 }
 
@@ -207,6 +227,7 @@ pub struct RetrievalEval {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RetrievalOutcome {
     Ok {
+        routing_metrics: RoutingMetrics,
         retrieval: Vec<RetrievalResult>,
         metrics: RetrievalMetrics,
     },
@@ -222,25 +243,47 @@ impl RetrievalOutcome {
             Self::Errored { .. } => None,
         }
     }
+
+    pub const fn routing_metrics(&self) -> Option<&RoutingMetrics> {
+        match self {
+            Self::Ok {
+                routing_metrics, ..
+            } => Some(routing_metrics),
+            Self::Errored { .. } => None,
+        }
+    }
 }
 
-pub struct PipelineEvaluator<P: Pipeline> {
+#[derive(Copy, Clone, Debug)]
+pub enum FilterMode {
+    Classifier,
+    Oracle,
+    None,
+}
+
+pub struct PipelineEvaluator<P: Pipeline, C: GameClassifier> {
     pipeline: P,
-    apply_game_filter: bool,
+    classifier: C,
+    games: Vec<String>,
+    filter_mode: FilterMode,
     tag_filters: Vec<String>,
     limit: Option<usize>,
 }
 
-impl<P: Pipeline> PipelineEvaluator<P> {
+impl<P: Pipeline, C: GameClassifier> PipelineEvaluator<P, C> {
     pub const fn new(
         pipeline: P,
-        apply_game_filter: bool,
+        classifier: C,
+        games: Vec<String>,
+        filter_mode: FilterMode,
         tag_filters: Vec<String>,
         limit: Option<usize>,
     ) -> Self {
         Self {
             pipeline,
-            apply_game_filter,
+            classifier,
+            games,
+            filter_mode,
             tag_filters,
             limit,
         }
@@ -252,7 +295,7 @@ impl<P: Pipeline> PipelineEvaluator<P> {
         name = "pipeline_eval",
         skip(self),
         fields(
-            apply_game_filter = self.apply_game_filter,
+            filter_mode = ?self.filter_mode,
             n_tags = self.tag_filters.len(),
             limit = ?self.limit,
         ),
@@ -271,23 +314,32 @@ impl<P: Pipeline> PipelineEvaluator<P> {
 
         let evals: Vec<FullEval> = stream::iter(examples).map(|example| async move {
             let start = Instant::now();
+            let (routing_metrics, game_filter): (RoutingMetrics, Option<String>) = match classify_with_metrics(&self.classifier, &example, self.filter_mode, &self.games).await {
+                Ok(results) => results,
+                Err(e) => {
+                    tracing::warn!(id = %example.id, error = %e, "errored");
+                    return FullEval {
+                        example,
+                        outcome: FullOutcome::Errored {
+                            error: flatten_error_chain(&e),
+                        },
+                    }
+                }
+            };
+            let retrieval_start = Instant::now();
             let (retrieval_results, elapsed_millis_retrieval) = match self
                 .pipeline
                 .retrieve(
                     &example.question,
                     &QueryOptions {
                         top_k: 10,
-                        game_filter: if self.apply_game_filter {
-                            example.game.clone()
-                        } else {
-                            None
-                        },
+                        game_filter,
                     },
                 )
                 .await
             {
                 Ok(results) => {
-                    let elapsed = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                    let elapsed = u64::try_from(retrieval_start.elapsed().as_millis()).unwrap_or(u64::MAX);
                     (results, elapsed)
                 }
                 Err(e) => {
@@ -326,12 +378,13 @@ impl<P: Pipeline> PipelineEvaluator<P> {
                         input_tokens,
                         output_tokens,
                     };
-                    tracing::info!(id = %example.id, quote_match, ?retrieval_metrics, refused, "ok");
+                    tracing::info!(id = %example.id, ?routing_metrics, ?retrieval_metrics, quote_match, refused, "ok");
                     FullOutcome::Ok {
                         answer: Answer {
                             text,
                             retrieval: retrieval_results,
                         },
+                        routing_metrics,
                         retrieval_metrics,
                         generation_metrics,
                     }
@@ -351,6 +404,8 @@ impl<P: Pipeline> PipelineEvaluator<P> {
             .await;
 
         let metrics: Vec<MetricsRef> = evals.iter().filter_map(|e| e.outcome.metrics()).collect();
+        let routing_metrics: Vec<&RoutingMetrics> =
+            metrics.iter().map(|m| m.routing_metrics).collect();
         let retrieval_metrics: Vec<&RetrievalMetrics> =
             metrics.iter().map(|m| m.retr_metrics).collect();
         let total = metrics.len();
@@ -380,9 +435,12 @@ impl<P: Pipeline> PipelineEvaluator<P> {
             percentiles(metrics.iter().map(|m| m.gen_metrics.output_tokens));
 
         let retrieval_ratios = summarize_retrieval(&retrieval_metrics);
+        let routing_ratios = matches!(self.filter_mode, FilterMode::Classifier)
+            .then(|| summarize_routing(&routing_metrics));
 
         Ok(FullEvaluation {
             evals,
+            routing_ratios,
             retrieval_ratios,
             generation_ratios: GenerationRatios {
                 quote,
@@ -398,23 +456,29 @@ impl<P: Pipeline> PipelineEvaluator<P> {
     }
 }
 
-pub struct RetrievalEvaluator<R: Retrieve> {
+pub struct RetrievalEvaluator<R: Retrieve, C: GameClassifier> {
     retriever: R,
-    apply_game_filter: bool,
+    classifier: C,
+    games: Vec<String>,
+    filter_mode: FilterMode,
     tag_filters: Vec<String>,
     limit: Option<usize>,
 }
 
-impl<R: Retrieve> RetrievalEvaluator<R> {
+impl<R: Retrieve, C: GameClassifier> RetrievalEvaluator<R, C> {
     pub const fn new(
         retriever: R,
-        apply_game_filter: bool,
+        classifier: C,
+        games: Vec<String>,
+        filter_mode: FilterMode,
         tag_filters: Vec<String>,
         limit: Option<usize>,
     ) -> Self {
         Self {
             retriever,
-            apply_game_filter,
+            classifier,
+            games,
+            filter_mode,
             tag_filters,
             limit,
         }
@@ -425,7 +489,7 @@ impl<R: Retrieve> RetrievalEvaluator<R> {
         name = "retrieval_eval",
         skip(self),
         fields(
-            apply_game_filter = self.apply_game_filter,
+            filter_mode = ?self.filter_mode,
             n_tags = self.tag_filters.len(),
             limit = ?self.limit,
         ),
@@ -444,31 +508,52 @@ impl<R: Retrieve> RetrievalEvaluator<R> {
 
         let evals: Vec<RetrievalEval> = stream::iter(examples)
             .map(|example| async move {
-                let start = Instant::now();
+                let (routing_metrics, game_filter): (RoutingMetrics, Option<String>) =
+                    match classify_with_metrics(
+                        &self.classifier,
+                        &example,
+                        self.filter_mode,
+                        &self.games,
+                    )
+                    .await
+                    {
+                        Ok(results) => results,
+                        Err(e) => {
+                            tracing::warn!(id = %example.id, error = %e, "errored");
+                            return RetrievalEval {
+                                example,
+                                outcome: RetrievalOutcome::Errored {
+                                    error: flatten_error_chain(&e),
+                                },
+                            };
+                        }
+                    };
+
+                let retrieval_start = Instant::now();
                 let outcome = match self
                     .retriever
                     .retrieve(
                         &example.question,
                         &QueryOptions {
                             top_k: 10,
-                            game_filter: if self.apply_game_filter {
-                                example.game.clone()
-                            } else {
-                                None
-                            },
+                            game_filter,
                         },
                     )
                     .await
                 {
                     Ok(retrieval) => {
-                        let elapsed_millis =
-                            u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                        let elapsed_millis = u64::try_from(retrieval_start.elapsed().as_millis())
+                            .unwrap_or(u64::MAX);
                         let metrics = RetrievalMetrics::from(
                             check_expected_chunk_contains(&example, &retrieval),
                             elapsed_millis,
                         );
-                        tracing::info!(id = %example.id, ?metrics, "ok");
-                        RetrievalOutcome::Ok { retrieval, metrics }
+                        tracing::info!(id = %example.id, ?routing_metrics, ?metrics, "ok");
+                        RetrievalOutcome::Ok {
+                            routing_metrics,
+                            retrieval,
+                            metrics,
+                        }
                     }
                     Err(e) => {
                         tracing::warn!(id = %example.id, error = %e, "errored");
@@ -487,8 +572,18 @@ impl<R: Retrieve> RetrievalEvaluator<R> {
         let metrics: Vec<&RetrievalMetrics> =
             evals.iter().filter_map(|e| e.outcome.metrics()).collect();
         let ratios = summarize_retrieval(&metrics);
+        let routing_metrics: Vec<&RoutingMetrics> = evals
+            .iter()
+            .filter_map(|e| e.outcome.routing_metrics())
+            .collect();
+        let routing_ratios = matches!(self.filter_mode, FilterMode::Classifier)
+            .then(|| summarize_routing(&routing_metrics));
 
-        Ok(RetrievalEvaluation { evals, ratios })
+        Ok(RetrievalEvaluation {
+            evals,
+            routing_ratios,
+            ratios,
+        })
     }
 }
 
@@ -595,6 +690,36 @@ pub fn check_expected_chunk_contains(
     })
 }
 
+/// Routes one eval row through the classifier (only when filter_mode requires
+/// it) and resolves the game_filter the retriever should see. Oracle and None
+/// modes skip the classifier entirely — the classifier output isn't used as
+/// the filter, so paying for the LLM call would just slow eval iteration with
+/// no signal gained. If you want routing accuracy numbers, run with
+/// `--filter-mode classifier`.
+async fn classify_with_metrics<C: GameClassifier>(
+    classifier: &C,
+    example: &EvalExample,
+    filter_mode: FilterMode,
+    games: &[String],
+) -> Result<(RoutingMetrics, Option<String>), C::Error> {
+    match filter_mode {
+        FilterMode::Oracle => Ok((RoutingMetrics::default(), example.game.clone())),
+        FilterMode::None => Ok((RoutingMetrics::default(), None)),
+        FilterMode::Classifier => {
+            let start = Instant::now();
+            let game_filter = classifier.classify(&example.question, games).await?;
+            let elapsed_millis =
+                u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+            let routing_metrics = RoutingMetrics {
+                correct: game_filter == example.game,
+                classified: game_filter.clone(),
+                elapsed_millis,
+            };
+            Ok((routing_metrics, game_filter))
+        }
+    }
+}
+
 fn flatten_error_chain(e: &(dyn std::error::Error + 'static)) -> Vec<String> {
     let mut chain = vec![e.to_string()];
     let mut current = e.source();
@@ -622,6 +747,27 @@ fn percentiles<I: IntoIterator<Item = usize>>(values: I) -> (usize, usize) {
         .copied()
         .unwrap_or_default();
     (p50, p95)
+}
+
+fn summarize_routing(metrics: &[&RoutingMetrics]) -> RoutingRatios {
+    let total = metrics.len();
+    let correct = metrics.iter().filter(|m| m.correct).count();
+    let accuracy = ratio(correct as f32, total);
+    let mut elapsed_sorted: Vec<u64> = metrics.iter().map(|m| m.elapsed_millis).collect();
+    elapsed_sorted.sort_unstable();
+    let elapsed_millis_p50 = elapsed_sorted
+        .get(elapsed_sorted.len() / 2)
+        .copied()
+        .unwrap_or_default();
+    let elapsed_millis_p95 = elapsed_sorted
+        .get(elapsed_sorted.len() * 19 / 20)
+        .copied()
+        .unwrap_or_default();
+    RoutingRatios {
+        accuracy,
+        elapsed_millis_p50,
+        elapsed_millis_p95,
+    }
 }
 
 #[allow(clippy::similar_names)]
