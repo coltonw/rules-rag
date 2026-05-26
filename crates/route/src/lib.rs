@@ -81,9 +81,9 @@ fn classify_prompt(query: &str, games: &[&str]) -> String {
         </answer>
         </example>
         <example>
-        <user_question>In Pandemic, how do I cure a disease?</user_question>
+        <user_question>In Dominion, how do I buy a card?</user_question>
         <answer>
-        {"named_game_substring": "Pandemic", "game": "Pandemic"}
+        {"named_game_substring": "Dominion", "game": "Dominion"}
         </answer>
         </example>
         <example>
@@ -247,4 +247,151 @@ struct OllamaGameResponse {
     #[serde(default)]
     named_game_substring: Option<String>,
     game: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rag_core::GameClassifier;
+
+    /// Realistic subset of the live games list, drawn from the BGG collection.
+    /// Includes near-collisions (e.g. Pandemic variants, Quacks variants) so
+    /// the test exercises the same disambiguation pressure as production.
+    fn games() -> Vec<&'static str> {
+        vec![
+            "7 Wonders", "7 Wonders Duel", "Ark Nova", "Arkham Horror: The Card Game",
+            "Azul: Stained Glass of Sintra", "Bohnanza", "Brass: Birmingham",
+            "Catan", "Challengers!", "Citadels", "Codenames", "Cosmic Encounter",
+            "Cubitos", "Disney Lorcana", "Dominion", "Dominion: Intrigue",
+            "Dune: Imperium", "Forbidden Desert", "Forbidden Island", "Gloom",
+            "Hadrian's Wall", "Inis", "King of Tokyo", "Lost Ruins of Arnak",
+            "Love Letter", "Mage Knight Board Game", "Magic: The Gathering",
+            "Mansions of Madness: Second Edition", "Marvel Champions: The Card Game",
+            "Mysterium", "Onirim (Second Edition)", "Paleo", "Pandemic",
+            "Pandemic Legacy: Season 1", "Pandemic: Hot Zone – North America",
+            "Potion Explosion", "Power Grid", "Quacks & Co.: Quedlinburg Dash",
+            "Res Arcana", "Roll for the Galaxy", "Spirit Island", "Stone Age",
+            "Sushi Go!", "The Crew: Mission Deep Sea", "The Crew: The Quest for Planet Nine",
+            "The Quacks of Quedlinburg", "Ticket to Ride", "Wingspan",
+        ]
+    }
+
+    /// Each case is (question, expected_game_or_none, description).
+    /// Positives test direct names, shortened names, and possessives.
+    /// Negatives are designed to look tempting (theme, mechanic, role) but
+    /// must return None.
+    fn cases() -> Vec<(&'static str, Option<&'static str>, &'static str)> {
+        vec![
+            // --- Direct-name positives ---
+            ("How do I cure a disease in Pandemic?", Some("Pandemic"), "direct: Pandemic"),
+            ("What's the action limit in Spirit Island?", Some("Spirit Island"), "direct: Spirit Island"),
+            ("How does the robber work in Catan?", Some("Catan"), "direct: Catan"),
+            ("In Res Arcana, what does a magic item do?", Some("Res Arcana"), "direct: Res Arcana"),
+            ("Stone Age scoring at game end?", Some("Stone Age"), "direct: Stone Age"),
+            ("How does Wingspan birdfeeder work?", Some("Wingspan"), "direct: Wingspan"),
+            ("Ark Nova zoo card placement", Some("Ark Nova"), "direct: Ark Nova"),
+            // --- Shortened-name positives ---
+            ("How does Quacks bag drawing work?", Some("The Quacks of Quedlinburg"), "shortened: Quacks"),
+            ("Lorcana combat damage step?", Some("Disney Lorcana"), "shortened: Lorcana"),
+            ("What can I do with an action in Arnak?", Some("Lost Ruins of Arnak"), "shortened: Arnak"),
+            // --- Possessive / different sentence shape positives ---
+            ("Catan's longest road bonus?", Some("Catan"), "possessive: Catan's"),
+            ("In Pandemic Legacy: Season 1, what triggers a funded event?", Some("Pandemic Legacy: Season 1"), "specific edition"),
+            // --- Tough negatives (theme/component/role matching) ---
+            ("How does the Medic's special ability work?", None, "neg: Pandemic role w/o name"),
+            ("How do I claim a Place of Power?", None, "neg: Res Arcana mechanic w/o name"),
+            ("What is a Sacred Site?", None, "neg: Spirit Island mechanic w/o name"),
+            ("How much does it cost to refill my flask?", None, "neg: Quacks component w/o name"),
+            ("When can I use the Sacrificial Pit?", None, "neg: theme bait → Arkham"),
+            ("How does Blight cascading work?", None, "neg: SI mechanic w/o name"),
+            ("What chips do I start the game with in my bag?", None, "neg: Quacks w/o name"),
+            ("Can I move from Tokyo to Paris with a card?", None, "neg: cities bait → TtR"),
+            ("My cards total 5 power. Does the attack succeed?", None, "neg: 'power' bait"),
+            // --- Generic-vocab negatives ---
+            ("How many turns are in a game?", None, "neg: generic 'turns'"),
+            ("How are victory points scored?", None, "neg: generic 'VP'"),
+            ("What does each player start with?", None, "neg: generic 'start with'"),
+            ("How does the game end?", None, "neg: generic 'end'"),
+        ]
+    }
+
+    /// Run the full classifier test battery. Marked `#[ignore]` because it
+    /// hits a live Ollama server (`http://localhost:11434`) and takes ~30s.
+    ///
+    /// Run with: `cargo test -p route classifier_battery -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore]
+    async fn classifier_battery() {
+        let classifier = OllamaGameClassifier::new();
+        let games = games();
+        let cases = cases();
+        let total = cases.len();
+        let mut positive_correct = 0;
+        let mut positive_total = 0;
+        let mut negative_correct = 0;
+        let mut negative_total = 0;
+        let mut false_positives: Vec<String> = Vec::new();
+        let mut wrong_positives: Vec<String> = Vec::new();
+        let mut missed_positives: Vec<String> = Vec::new();
+
+        println!("\n=== Classifier battery ({total} cases) ===\n");
+        for (question, expected, desc) in cases {
+            let got = classifier
+                .classify(question, &games)
+                .await
+                .expect("classify call");
+            let ok = got.as_deref() == expected;
+            let marker = if ok { "PASS" } else { "FAIL" };
+            println!("[{marker}] {desc}\n        Q: {question}\n        expected: {expected:?}  got: {got:?}\n");
+
+            match expected {
+                Some(expected_game) => {
+                    positive_total += 1;
+                    if ok {
+                        positive_correct += 1;
+                    } else if got.is_none() {
+                        missed_positives.push(format!("{desc} (wanted {expected_game})"));
+                    } else {
+                        wrong_positives.push(format!(
+                            "{desc} (wanted {expected_game}, got {})",
+                            got.as_deref().unwrap_or("?")
+                        ));
+                    }
+                }
+                None => {
+                    negative_total += 1;
+                    if ok {
+                        negative_correct += 1;
+                    } else {
+                        false_positives.push(format!(
+                            "{desc} (got {})",
+                            got.as_deref().unwrap_or("?")
+                        ));
+                    }
+                }
+            }
+        }
+
+        println!("=== Summary ===");
+        println!("Positives: {positive_correct}/{positive_total}");
+        println!("Negatives (correct null): {negative_correct}/{negative_total}");
+        println!("False positives: {}", false_positives.len());
+        for fp in &false_positives {
+            println!("  - {fp}");
+        }
+        println!("Wrong-game classifications on positives: {}", wrong_positives.len());
+        for wp in &wrong_positives {
+            println!("  - {wp}");
+        }
+        println!("Missed positives (got null): {}", missed_positives.len());
+        for mp in &missed_positives {
+            println!("  - {mp}");
+        }
+
+        assert!(
+            false_positives.is_empty(),
+            "classifier returned a wrong game on {} negative case(s); see stdout",
+            false_positives.len()
+        );
+    }
 }
