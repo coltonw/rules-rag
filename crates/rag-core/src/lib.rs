@@ -54,10 +54,20 @@ pub struct Answer {
     pub retrieval: Vec<RetrievalResult>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct QueryOptions {
     pub top_k: usize,
     pub game_filter: Option<String>,
+}
+
+impl QueryOptions {
+    #[must_use]
+    pub fn with_top_k(&self, top_k: usize) -> Self {
+        Self {
+            top_k,
+            ..self.clone()
+        }
+    }
 }
 
 pub trait Store: Sized {
@@ -86,6 +96,12 @@ pub trait GameClassifier {
         query: &str,
         games: &[impl AsRef<str>],
     ) -> Result<Option<String>, Self::Error>;
+}
+
+pub trait Rewriter {
+    type Error: std::error::Error + Send + Sync + 'static;
+    fn new() -> Self;
+    async fn rewrite(&self, query: &str) -> Result<Vec<String>, Self::Error>;
 }
 
 pub trait Embedder {

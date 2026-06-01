@@ -236,7 +236,10 @@ impl GameClassifier for OllamaGameClassifier {
                 source: e,
             })?;
 
-        debug!(classified = resp.game.as_deref().unwrap_or("<none>"), "classified game");
+        debug!(
+            classified = resp.game.as_deref().unwrap_or("<none>"),
+            "classified game"
+        );
         Ok(resp.game)
     }
 }
@@ -259,20 +262,54 @@ mod tests {
     /// the test exercises the same disambiguation pressure as production.
     fn games() -> Vec<&'static str> {
         vec![
-            "7 Wonders", "7 Wonders Duel", "Ark Nova", "Arkham Horror: The Card Game",
-            "Azul: Stained Glass of Sintra", "Bohnanza", "Brass: Birmingham",
-            "Catan", "Challengers!", "Citadels", "Codenames", "Cosmic Encounter",
-            "Cubitos", "Disney Lorcana", "Dominion", "Dominion: Intrigue",
-            "Dune: Imperium", "Forbidden Desert", "Forbidden Island", "Gloom",
-            "Hadrian's Wall", "Inis", "King of Tokyo", "Lost Ruins of Arnak",
-            "Love Letter", "Mage Knight Board Game", "Magic: The Gathering",
-            "Mansions of Madness: Second Edition", "Marvel Champions: The Card Game",
-            "Mysterium", "Onirim (Second Edition)", "Paleo", "Pandemic",
-            "Pandemic Legacy: Season 1", "Pandemic: Hot Zone – North America",
-            "Potion Explosion", "Power Grid", "Quacks & Co.: Quedlinburg Dash",
-            "Res Arcana", "Roll for the Galaxy", "Spirit Island", "Stone Age",
-            "Sushi Go!", "The Crew: Mission Deep Sea", "The Crew: The Quest for Planet Nine",
-            "The Quacks of Quedlinburg", "Ticket to Ride", "Wingspan",
+            "7 Wonders",
+            "7 Wonders Duel",
+            "Ark Nova",
+            "Arkham Horror: The Card Game",
+            "Azul: Stained Glass of Sintra",
+            "Bohnanza",
+            "Brass: Birmingham",
+            "Catan",
+            "Challengers!",
+            "Citadels",
+            "Codenames",
+            "Cosmic Encounter",
+            "Cubitos",
+            "Disney Lorcana",
+            "Dominion",
+            "Dominion: Intrigue",
+            "Dune: Imperium",
+            "Forbidden Desert",
+            "Forbidden Island",
+            "Gloom",
+            "Hadrian's Wall",
+            "Inis",
+            "King of Tokyo",
+            "Lost Ruins of Arnak",
+            "Love Letter",
+            "Mage Knight Board Game",
+            "Magic: The Gathering",
+            "Mansions of Madness: Second Edition",
+            "Marvel Champions: The Card Game",
+            "Mysterium",
+            "Onirim (Second Edition)",
+            "Paleo",
+            "Pandemic",
+            "Pandemic Legacy: Season 1",
+            "Pandemic: Hot Zone – North America",
+            "Potion Explosion",
+            "Power Grid",
+            "Quacks & Co.: Quedlinburg Dash",
+            "Res Arcana",
+            "Roll for the Galaxy",
+            "Spirit Island",
+            "Stone Age",
+            "Sushi Go!",
+            "The Crew: Mission Deep Sea",
+            "The Crew: The Quest for Planet Nine",
+            "The Quacks of Quedlinburg",
+            "Ticket to Ride",
+            "Wingspan",
         ]
     }
 
@@ -280,37 +317,130 @@ mod tests {
     /// Positives test direct names, shortened names, and possessives.
     /// Negatives are designed to look tempting (theme, mechanic, role) but
     /// must return None.
+    #[allow(clippy::too_many_lines)]
     fn cases() -> Vec<(&'static str, Option<&'static str>, &'static str)> {
         vec![
             // --- Direct-name positives ---
-            ("How do I cure a disease in Pandemic?", Some("Pandemic"), "direct: Pandemic"),
-            ("What's the action limit in Spirit Island?", Some("Spirit Island"), "direct: Spirit Island"),
-            ("How does the robber work in Catan?", Some("Catan"), "direct: Catan"),
-            ("In Res Arcana, what does a magic item do?", Some("Res Arcana"), "direct: Res Arcana"),
-            ("Stone Age scoring at game end?", Some("Stone Age"), "direct: Stone Age"),
-            ("How does Wingspan birdfeeder work?", Some("Wingspan"), "direct: Wingspan"),
-            ("Ark Nova zoo card placement", Some("Ark Nova"), "direct: Ark Nova"),
+            (
+                "How do I cure a disease in Pandemic?",
+                Some("Pandemic"),
+                "direct: Pandemic",
+            ),
+            (
+                "What's the action limit in Spirit Island?",
+                Some("Spirit Island"),
+                "direct: Spirit Island",
+            ),
+            (
+                "How does the robber work in Catan?",
+                Some("Catan"),
+                "direct: Catan",
+            ),
+            (
+                "In Res Arcana, what does a magic item do?",
+                Some("Res Arcana"),
+                "direct: Res Arcana",
+            ),
+            (
+                "Stone Age scoring at game end?",
+                Some("Stone Age"),
+                "direct: Stone Age",
+            ),
+            (
+                "How does Wingspan birdfeeder work?",
+                Some("Wingspan"),
+                "direct: Wingspan",
+            ),
+            (
+                "Ark Nova zoo card placement",
+                Some("Ark Nova"),
+                "direct: Ark Nova",
+            ),
             // --- Shortened-name positives ---
-            ("How does Quacks bag drawing work?", Some("The Quacks of Quedlinburg"), "shortened: Quacks"),
-            ("Lorcana combat damage step?", Some("Disney Lorcana"), "shortened: Lorcana"),
-            ("What can I do with an action in Arnak?", Some("Lost Ruins of Arnak"), "shortened: Arnak"),
+            (
+                "How does Quacks bag drawing work?",
+                Some("The Quacks of Quedlinburg"),
+                "shortened: Quacks",
+            ),
+            (
+                "Lorcana combat damage step?",
+                Some("Disney Lorcana"),
+                "shortened: Lorcana",
+            ),
+            (
+                "What can I do with an action in Arnak?",
+                Some("Lost Ruins of Arnak"),
+                "shortened: Arnak",
+            ),
             // --- Possessive / different sentence shape positives ---
-            ("Catan's longest road bonus?", Some("Catan"), "possessive: Catan's"),
-            ("In Pandemic Legacy: Season 1, what triggers a funded event?", Some("Pandemic Legacy: Season 1"), "specific edition"),
+            (
+                "Catan's longest road bonus?",
+                Some("Catan"),
+                "possessive: Catan's",
+            ),
+            (
+                "In Pandemic Legacy: Season 1, what triggers a funded event?",
+                Some("Pandemic Legacy: Season 1"),
+                "specific edition",
+            ),
             // --- Tough negatives (theme/component/role matching) ---
-            ("How does the Medic's special ability work?", None, "neg: Pandemic role w/o name"),
-            ("How do I claim a Place of Power?", None, "neg: Res Arcana mechanic w/o name"),
-            ("What is a Sacred Site?", None, "neg: Spirit Island mechanic w/o name"),
-            ("How much does it cost to refill my flask?", None, "neg: Quacks component w/o name"),
-            ("When can I use the Sacrificial Pit?", None, "neg: theme bait → Arkham"),
-            ("How does Blight cascading work?", None, "neg: SI mechanic w/o name"),
-            ("What chips do I start the game with in my bag?", None, "neg: Quacks w/o name"),
-            ("Can I move from Tokyo to Paris with a card?", None, "neg: cities bait → TtR"),
-            ("My cards total 5 power. Does the attack succeed?", None, "neg: 'power' bait"),
+            (
+                "How does the Medic's special ability work?",
+                None,
+                "neg: Pandemic role w/o name",
+            ),
+            (
+                "How do I claim a Place of Power?",
+                None,
+                "neg: Res Arcana mechanic w/o name",
+            ),
+            (
+                "What is a Sacred Site?",
+                None,
+                "neg: Spirit Island mechanic w/o name",
+            ),
+            (
+                "How much does it cost to refill my flask?",
+                None,
+                "neg: Quacks component w/o name",
+            ),
+            (
+                "When can I use the Sacrificial Pit?",
+                None,
+                "neg: theme bait → Arkham",
+            ),
+            (
+                "How does Blight cascading work?",
+                None,
+                "neg: SI mechanic w/o name",
+            ),
+            (
+                "What chips do I start the game with in my bag?",
+                None,
+                "neg: Quacks w/o name",
+            ),
+            (
+                "Can I move from Tokyo to Paris with a card?",
+                None,
+                "neg: cities bait → TtR",
+            ),
+            (
+                "My cards total 5 power. Does the attack succeed?",
+                None,
+                "neg: 'power' bait",
+            ),
             // --- Generic-vocab negatives ---
-            ("How many turns are in a game?", None, "neg: generic 'turns'"),
+            (
+                "How many turns are in a game?",
+                None,
+                "neg: generic 'turns'",
+            ),
             ("How are victory points scored?", None, "neg: generic 'VP'"),
-            ("What does each player start with?", None, "neg: generic 'start with'"),
+            (
+                "What does each player start with?",
+                None,
+                "neg: generic 'start with'",
+            ),
             ("How does the game end?", None, "neg: generic 'end'"),
         ]
     }
@@ -320,7 +450,7 @@ mod tests {
     ///
     /// Run with: `cargo test -p route classifier_battery -- --ignored --nocapture`
     #[tokio::test]
-    #[ignore]
+    #[ignore = "Depends on ollama running"]
     async fn classifier_battery() {
         let classifier = OllamaGameClassifier::new();
         let games = games();
@@ -342,32 +472,28 @@ mod tests {
                 .expect("classify call");
             let ok = got.as_deref() == expected;
             let marker = if ok { "PASS" } else { "FAIL" };
-            println!("[{marker}] {desc}\n        Q: {question}\n        expected: {expected:?}  got: {got:?}\n");
+            println!(
+                "[{marker}] {desc}\n        Q: {question}\n        expected: {expected:?}  got: {got:?}\n"
+            );
 
-            match expected {
-                Some(expected_game) => {
-                    positive_total += 1;
-                    if ok {
-                        positive_correct += 1;
-                    } else if got.is_none() {
-                        missed_positives.push(format!("{desc} (wanted {expected_game})"));
-                    } else {
-                        wrong_positives.push(format!(
-                            "{desc} (wanted {expected_game}, got {})",
-                            got.as_deref().unwrap_or("?")
-                        ));
-                    }
+            if let Some(expected_game) = expected {
+                positive_total += 1;
+                if ok {
+                    positive_correct += 1;
+                } else if got.is_none() {
+                    missed_positives.push(format!("{desc} (wanted {expected_game})"));
+                } else {
+                    wrong_positives.push(format!(
+                        "{desc} (wanted {expected_game}, got {})",
+                        got.as_deref().unwrap_or("?")
+                    ));
                 }
-                None => {
-                    negative_total += 1;
-                    if ok {
-                        negative_correct += 1;
-                    } else {
-                        false_positives.push(format!(
-                            "{desc} (got {})",
-                            got.as_deref().unwrap_or("?")
-                        ));
-                    }
+            } else {
+                negative_total += 1;
+                if ok {
+                    negative_correct += 1;
+                } else {
+                    false_positives.push(format!("{desc} (got {})", got.as_deref().unwrap_or("?")));
                 }
             }
         }
@@ -379,7 +505,10 @@ mod tests {
         for fp in &false_positives {
             println!("  - {fp}");
         }
-        println!("Wrong-game classifications on positives: {}", wrong_positives.len());
+        println!(
+            "Wrong-game classifications on positives: {}",
+            wrong_positives.len()
+        );
         for wp in &wrong_positives {
             println!("  - {wp}");
         }

@@ -8,7 +8,9 @@ workspace = true
 
 [dependencies]
 embed = { path = "../embed" }
+futures = "0.3.32"
 rag-core = { path = "../rag-core" }
+rewrite = { path = "../rewrite" }
 store = { path = "../store" }
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["macros"] }

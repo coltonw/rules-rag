@@ -11,9 +11,11 @@ use ingest::manifest::DocMeta;
 use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
 use pipeline::{FullContextPipeline, NaivePipeline};
 use rag_core::{
-    Chunk, Embedder as _, GameClassifier, Generator as _, Pipeline, QueryOptions, Store as _,
+    Chunk, Embedder as _, GameClassifier, Generator as _, Pipeline, QueryOptions, Rewriter as _,
+    Store as _,
 };
-use retrieve::{DenseRetriever, HybridRetriever, Retriever, SparseRetriever};
+use retrieve::{DenseRetriever, HybridRetriever, MultiQueryRetriever, Retriever, SparseRetriever};
+use rewrite::OllamaRewriter;
 use route::OllamaGameClassifier;
 use std::collections::HashMap;
 use std::path::Path;
@@ -112,6 +114,8 @@ enum RetrieverKind {
     Dense,
     #[value(alias = "s")]
     Sparse,
+    #[value(alias = "m")]
+    MultiQuery,
 }
 
 #[derive(Copy, Clone, clap::ValueEnum)]
@@ -188,6 +192,10 @@ async fn main() -> anyhow::Result<()> {
                 RetrieverKind::Hybrid => Retriever::Hybrid(HybridRetriever::new(store, embedder)),
                 RetrieverKind::Dense => Retriever::Dense(DenseRetriever::new(store, embedder)),
                 RetrieverKind::Sparse => Retriever::Sparse(SparseRetriever::new(store)),
+                RetrieverKind::MultiQuery => {
+                    let rewriter = OllamaRewriter::new();
+                    Retriever::MultiQuery(MultiQueryRetriever::new(store, embedder, rewriter))
+                }
             };
             if retrieval_only {
                 run_retrieval_eval(
@@ -344,7 +352,8 @@ async fn run_ask(
         classified
     };
 
-    let retriever = Retriever::Dense(DenseRetriever::new(store, embedder));
+    let rewriter = OllamaRewriter::new();
+    let retriever = Retriever::MultiQuery(MultiQueryRetriever::new(store, embedder, rewriter));
     let generator = OllamaGenerator::new();
     let pipeline = NaivePipeline::new(retriever, generator);
     let answer = pipeline

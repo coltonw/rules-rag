@@ -767,6 +767,7 @@ dependencies = [
  "pipeline",
  "rag-core",
  "retrieve",
+ "rewrite",
  "route",
  "store",
  "tokio",
@@ -4401,8 +4402,24 @@ name = "retrieve"
 version = "0.1.0"
 dependencies = [
  "embed",
+ "futures",
  "rag-core",
+ "rewrite",
  "store",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "rewrite"
+version = "0.1.0"
+dependencies = [
+ "indoc",
+ "rag-core",
+ "reqwest 0.13.3",
+ "serde",
+ "serde_json",
  "thiserror",
  "tokio",
  "tracing",

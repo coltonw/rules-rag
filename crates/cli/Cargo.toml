@@ -16,6 +16,7 @@ ingest = { path = "../ingest" }
 pipeline = { path = "../pipeline" }
 rag-core = { path = "../rag-core" }
 retrieve = { path = "../retrieve" }
+rewrite = { path = "../rewrite" }
 route = { path = "../route" }
 store = { path = "../store" }
 tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread"] }
