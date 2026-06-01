@@ -5,3 +5,4 @@
 /data/misc/
 __pycache__
 /scripts/.venv/
+/analysis/
