@@ -15,6 +15,7 @@ generate = { path = "../generate" }
 ingest = { path = "../ingest" }
 pipeline = { path = "../pipeline" }
 rag-core = { path = "../rag-core" }
+rerank = { path = "../rerank" }
 retrieve = { path = "../retrieve" }
 rewrite = { path = "../rewrite" }
 route = { path = "../route" }

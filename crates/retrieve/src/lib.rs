@@ -3,7 +3,10 @@ use std::{collections::HashMap, iter};
 
 use embed::OllamaEmbedder;
 use futures::future::try_join_all;
-use rag_core::{Embedder, QueryOptions, RetrievalResult, Retrieve, Rewriter, Store};
+use rag_core::{
+    Chunk, Embedder, QueryOptions, Reranker, RetrievalResult, Retrieve, Rewriter, Store,
+};
+use rerank::HttpReranker;
 use rewrite::OllamaRewriter;
 use store::LanceStore;
 use tracing::{debug, instrument};
@@ -16,6 +19,8 @@ pub enum RetrieveError {
     Store(#[from] store::StoreError),
     #[error("rewrite failed")]
     Rewrite(#[from] rewrite::RewriteError),
+    #[error("rerank failed")]
+    Rerank(#[from] rerank::RerankError),
 }
 
 pub struct DenseRetriever {
@@ -126,6 +131,7 @@ pub struct MultiQueryRetriever {
     store: LanceStore,
     embedder: OllamaEmbedder,
     rewriter: OllamaRewriter,
+    reranker: HttpReranker,
 }
 
 impl MultiQueryRetriever {
@@ -133,11 +139,13 @@ impl MultiQueryRetriever {
         store: LanceStore,
         embedder: OllamaEmbedder,
         rewriter: OllamaRewriter,
+        reranker: HttpReranker,
     ) -> Self {
         Self {
             store,
             embedder,
             rewriter,
+            reranker,
         }
     }
 }
@@ -162,8 +170,8 @@ impl Retrieve for MultiQueryRetriever {
         let rewrites = self.rewriter.rewrite(question).await?;
         debug!(n_rewrites = rewrites.len(), "rewrites generated");
 
-        let fanout = 3;
-        let inner_take = options.top_k * fanout;
+        let inner_take = 30;
+        let rerank_take = 30;
 
         let queries = iter::once(question)
             .chain(rewrites.iter().map(String::as_str))
@@ -181,7 +189,13 @@ impl Retrieve for MultiQueryRetriever {
                 },
             );
         let results: Vec<Vec<RetrievalResult>> = try_join_all(queries).await?;
-        let results: Vec<RetrievalResult> = rrf(results).into_iter().take(options.top_k).collect();
+        let chunks: Vec<Chunk> = rrf(results)
+            .into_iter()
+            .take(rerank_take)
+            .map(|r| r.chunk)
+            .collect();
+        let results: Vec<RetrievalResult> = self.reranker.rerank(question, chunks).await?;
+        let results: Vec<RetrievalResult> = results.into_iter().take(options.top_k).collect();
 
         debug!(n_results = results.len(), "multi-query retrieve done");
         Ok(results)

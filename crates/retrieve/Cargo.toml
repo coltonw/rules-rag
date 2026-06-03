@@ -10,6 +10,7 @@ workspace = true
 embed = { path = "../embed" }
 futures = "0.3.32"
 rag-core = { path = "../rag-core" }
+rerank = { path = "../rerank" }
 rewrite = { path = "../rewrite" }
 store = { path = "../store" }
 thiserror = "2.0.18"

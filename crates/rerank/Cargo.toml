@@ -1,0 +1,14 @@
+[package]
+name = "rerank"
+version.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rag-core = { path = "../rag-core" }
+reqwest = { version = "0.13.3", features = ["json"] }
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.18"
+tracing = "0.1.44"

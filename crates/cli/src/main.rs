@@ -11,9 +11,10 @@ use ingest::manifest::DocMeta;
 use ingest::{Chunker as _, FixedSizeChunker, manifest::read_manifest};
 use pipeline::{FullContextPipeline, NaivePipeline};
 use rag_core::{
-    Chunk, Embedder as _, GameClassifier, Generator as _, Pipeline, QueryOptions, Rewriter as _,
-    Store as _,
+    Chunk, Embedder as _, GameClassifier, Generator as _, Pipeline, QueryOptions, Reranker as _,
+    Rewriter as _, Store as _,
 };
+use rerank::HttpReranker;
 use retrieve::{DenseRetriever, HybridRetriever, MultiQueryRetriever, Retriever, SparseRetriever};
 use rewrite::OllamaRewriter;
 use route::OllamaGameClassifier;
@@ -194,7 +195,10 @@ async fn main() -> anyhow::Result<()> {
                 RetrieverKind::Sparse => Retriever::Sparse(SparseRetriever::new(store)),
                 RetrieverKind::MultiQuery => {
                     let rewriter = OllamaRewriter::new();
-                    Retriever::MultiQuery(MultiQueryRetriever::new(store, embedder, rewriter))
+                    let reranker = HttpReranker::new()?;
+                    Retriever::MultiQuery(MultiQueryRetriever::new(
+                        store, embedder, rewriter, reranker,
+                    ))
                 }
             };
             if retrieval_only {
@@ -353,7 +357,10 @@ async fn run_ask(
     };
 
     let rewriter = OllamaRewriter::new();
-    let retriever = Retriever::MultiQuery(MultiQueryRetriever::new(store, embedder, rewriter));
+    let reranker = HttpReranker::new()?;
+    let retriever = Retriever::MultiQuery(MultiQueryRetriever::new(
+        store, embedder, rewriter, reranker,
+    ));
     let generator = OllamaGenerator::new();
     let pipeline = NaivePipeline::new(retriever, generator);
     let answer = pipeline

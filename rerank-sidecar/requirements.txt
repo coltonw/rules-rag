@@ -1,0 +1,15 @@
+# Pinned to the ONNX Runtime build proven working on this box (WSL2 + RTX 3080).
+# onnxruntime-gpu needs the CUDA 12 / cuDNN 9 runtime libs, which we pull as
+# pip wheels (no system CUDA install / no sudo) and put on LD_LIBRARY_PATH via
+# run.sh.
+onnxruntime-gpu==1.23.2
+tokenizers
+numpy
+onnx                  # for prepare_model.py
+onnxconverter-common  # for prepare_model.py
+huggingface-hub       # for prepare_model.py (model download)
+nvidia-cuda-runtime-cu12
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
+nvidia-cufft-cu12
+nvidia-curand-cu12

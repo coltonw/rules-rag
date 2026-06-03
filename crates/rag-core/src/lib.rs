@@ -111,6 +111,16 @@ pub trait Embedder {
     async fn embed_one(&self, input: &str) -> Result<Vec<f32>, Self::Error>;
 }
 
+pub trait Reranker: Sized {
+    type Error: std::error::Error + Send + Sync + 'static;
+    fn new() -> Result<Self, Self::Error>;
+    async fn rerank(
+        &self,
+        query: &str,
+        chunks: Vec<Chunk>,
+    ) -> Result<Vec<RetrievalResult>, Self::Error>;
+}
+
 pub trait Generator: Sized {
     type Error: std::error::Error + Send + Sync + 'static;
     fn new() -> Self;

@@ -766,6 +766,7 @@ dependencies = [
  "ingest",
  "pipeline",
  "rag-core",
+ "rerank",
  "retrieve",
  "rewrite",
  "route",
@@ -4398,12 +4399,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "rerank"
+version = "0.1.0"
+dependencies = [
+ "rag-core",
+ "reqwest 0.13.3",
+ "serde",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "retrieve"
 version = "0.1.0"
 dependencies = [
  "embed",
  "futures",
  "rag-core",
+ "rerank",
  "rewrite",
  "store",
  "thiserror",
