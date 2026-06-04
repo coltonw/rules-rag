@@ -127,30 +127,27 @@ impl Retrieve for HybridRetriever {
     }
 }
 
-pub struct MultiQueryRetriever {
+pub struct MultiQueryHybridRetriever {
     store: LanceStore,
     embedder: OllamaEmbedder,
     rewriter: OllamaRewriter,
-    reranker: HttpReranker,
 }
 
-impl MultiQueryRetriever {
+impl MultiQueryHybridRetriever {
     pub const fn new(
         store: LanceStore,
         embedder: OllamaEmbedder,
         rewriter: OllamaRewriter,
-        reranker: HttpReranker,
     ) -> Self {
         Self {
             store,
             embedder,
             rewriter,
-            reranker,
         }
     }
 }
 
-impl Retrieve for MultiQueryRetriever {
+impl Retrieve for MultiQueryHybridRetriever {
     type Error = RetrieveError;
     #[instrument(
         level = "debug",
@@ -170,25 +167,132 @@ impl Retrieve for MultiQueryRetriever {
         let rewrites = self.rewriter.rewrite(question).await?;
         debug!(n_rewrites = rewrites.len(), "rewrites generated");
 
+        let inner_take = options.top_k * 3;
+
+        let queries: Vec<&str> = iter::once(question)
+            .chain(rewrites.iter().map(String::as_str))
+            .collect();
+        let results = fanout(
+            &queries,
+            &self.store,
+            &self.embedder,
+            &options.with_top_k(inner_take),
+        )
+        .await?;
+        let results: Vec<RetrievalResult> = rrf(results).into_iter().take(options.top_k).collect();
+
+        debug!(n_results = results.len(), "multi-query retrieve done");
+        Ok(results)
+    }
+}
+
+pub struct RerankingHybridRetriever {
+    store: LanceStore,
+    embedder: OllamaEmbedder,
+    reranker: HttpReranker,
+}
+
+impl RerankingHybridRetriever {
+    pub const fn new(store: LanceStore, embedder: OllamaEmbedder, reranker: HttpReranker) -> Self {
+        Self {
+            store,
+            embedder,
+            reranker,
+        }
+    }
+}
+
+impl Retrieve for RerankingHybridRetriever {
+    type Error = RetrieveError;
+    #[instrument(
+        level = "debug",
+        name = "reranking_retrieve",
+        skip_all,
+        fields(
+            q_len = question.len(),
+            top_k = options.top_k,
+            game = options.game_filter.as_deref().unwrap_or(""),
+        ),
+    )]
+    async fn retrieve(
+        &self,
+        question: &str,
+        options: &QueryOptions,
+    ) -> Result<Vec<RetrievalResult>, RetrieveError> {
+        let rerank_take = 30;
+
+        let results: Vec<RetrievalResult> = hybrid_one(
+            &self.store,
+            &self.embedder,
+            question,
+            &options.with_top_k(rerank_take),
+        )
+        .await?;
+        let chunks: Vec<Chunk> = results.into_iter().map(|r| r.chunk).collect();
+        let results: Vec<RetrievalResult> = self.reranker.rerank(question, chunks).await?;
+        let results: Vec<RetrievalResult> = results.into_iter().take(options.top_k).collect();
+
+        debug!(n_results = results.len(), "reranking retrieve done");
+        Ok(results)
+    }
+}
+
+pub struct MultiQueryRerankingHybridRetriever {
+    store: LanceStore,
+    embedder: OllamaEmbedder,
+    rewriter: OllamaRewriter,
+    reranker: HttpReranker,
+}
+
+impl MultiQueryRerankingHybridRetriever {
+    pub const fn new(
+        store: LanceStore,
+        embedder: OllamaEmbedder,
+        rewriter: OllamaRewriter,
+        reranker: HttpReranker,
+    ) -> Self {
+        Self {
+            store,
+            embedder,
+            rewriter,
+            reranker,
+        }
+    }
+}
+
+impl Retrieve for MultiQueryRerankingHybridRetriever {
+    type Error = RetrieveError;
+    #[instrument(
+        level = "debug",
+        name = "multi-query-reranking_retrieve",
+        skip_all,
+        fields(
+            q_len = question.len(),
+            top_k = options.top_k,
+            game = options.game_filter.as_deref().unwrap_or(""),
+        ),
+    )]
+    async fn retrieve(
+        &self,
+        question: &str,
+        options: &QueryOptions,
+    ) -> Result<Vec<RetrievalResult>, RetrieveError> {
+        let rewrites = self.rewriter.rewrite(question).await?;
+        debug!(n_rewrites = rewrites.len(), "rewrites generated");
+
         let inner_take = 30;
         let rerank_take = 30;
 
-        let queries = iter::once(question)
+        let queries: Vec<&str> = iter::once(question)
             .chain(rewrites.iter().map(String::as_str))
-            .enumerate()
-            .map(
-                async |(idx, q)| -> Result<Vec<RetrievalResult>, RetrieveError> {
-                    debug!(idx, q_len = q.len(), "querying rewrite");
-                    hybrid_one(
-                        &self.store,
-                        &self.embedder,
-                        q,
-                        &options.with_top_k(inner_take),
-                    )
-                    .await
-                },
-            );
-        let results: Vec<Vec<RetrievalResult>> = try_join_all(queries).await?;
+            .collect();
+        let results = fanout(
+            &queries,
+            &self.store,
+            &self.embedder,
+            &options.with_top_k(inner_take),
+        )
+        .await?;
         let chunks: Vec<Chunk> = rrf(results)
             .into_iter()
             .take(rerank_take)
@@ -197,7 +301,10 @@ impl Retrieve for MultiQueryRetriever {
         let results: Vec<RetrievalResult> = self.reranker.rerank(question, chunks).await?;
         let results: Vec<RetrievalResult> = results.into_iter().take(options.top_k).collect();
 
-        debug!(n_results = results.len(), "multi-query retrieve done");
+        debug!(
+            n_results = results.len(),
+            "multi-query reranking retrieve done"
+        );
         Ok(results)
     }
 }
@@ -206,7 +313,9 @@ pub enum Retriever {
     Dense(DenseRetriever),
     Sparse(SparseRetriever),
     Hybrid(HybridRetriever),
-    MultiQuery(MultiQueryRetriever),
+    MultiQuery(MultiQueryHybridRetriever),
+    Reranking(RerankingHybridRetriever),
+    MultiQueryReranking(MultiQueryRerankingHybridRetriever),
 }
 
 impl Retrieve for Retriever {
@@ -221,6 +330,8 @@ impl Retrieve for Retriever {
             Self::Sparse(retriever) => retriever.retrieve(question, options).await,
             Self::Hybrid(retriever) => retriever.retrieve(question, options).await,
             Self::MultiQuery(retriever) => retriever.retrieve(question, options).await,
+            Self::Reranking(retriever) => retriever.retrieve(question, options).await,
+            Self::MultiQueryReranking(retriever) => retriever.retrieve(question, options).await,
         }
     }
 }
@@ -252,9 +363,30 @@ fn rrf(results_list: Vec<Vec<RetrievalResult>>) -> Vec<RetrievalResult> {
 
 #[instrument(
     level = "debug",
+    name = "fanout",
+    skip_all,
+    fields(n_queries = queries.len(), top_k = options.top_k),
+)]
+async fn fanout(
+    queries: &[&str],
+    store: &LanceStore,
+    embedder: &OllamaEmbedder,
+    options: &QueryOptions,
+) -> Result<Vec<Vec<RetrievalResult>>, RetrieveError> {
+    let queries = queries.iter().enumerate().map(
+        async |(idx, q)| -> Result<Vec<RetrievalResult>, RetrieveError> {
+            debug!(idx, q_len = q.len(), "querying rewrite");
+            hybrid_one(store, embedder, q, options).await
+        },
+    );
+    try_join_all(queries).await
+}
+
+#[instrument(
+    level = "debug",
     name = "hybrid_one",
     skip_all,
-    fields(q_len = question.len(), take_n),
+    fields(q_len = question.len(), top_k = options.top_k),
 )]
 async fn hybrid_one(
     store: &LanceStore,

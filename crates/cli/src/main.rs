@@ -15,7 +15,10 @@ use rag_core::{
     Rewriter as _, Store as _,
 };
 use rerank::HttpReranker;
-use retrieve::{DenseRetriever, HybridRetriever, MultiQueryRetriever, Retriever, SparseRetriever};
+use retrieve::{
+    DenseRetriever, HybridRetriever, MultiQueryHybridRetriever, MultiQueryRerankingHybridRetriever,
+    RerankingHybridRetriever, Retriever, SparseRetriever,
+};
 use rewrite::OllamaRewriter;
 use route::OllamaGameClassifier;
 use std::collections::HashMap;
@@ -83,7 +86,7 @@ enum Command {
         #[arg(long, value_enum, default_value_t = CliFilterMode::Oracle)]
         filter_mode: CliFilterMode,
 
-        #[arg(long, value_enum, default_value_t = RetrieverKind::Hybrid)]
+        #[arg(long, value_enum, default_value_t = RetrieverKind::MultiQueryReranking)]
         retriever: RetrieverKind,
 
         #[arg(short = 'p', long, value_enum, default_value_t = PipelineOption::Naive)]
@@ -117,6 +120,9 @@ enum RetrieverKind {
     Sparse,
     #[value(alias = "m")]
     MultiQuery,
+    #[value(alias = "r")]
+    Reranking,
+    MultiQueryReranking,
 }
 
 #[derive(Copy, Clone, clap::ValueEnum)]
@@ -195,8 +201,16 @@ async fn main() -> anyhow::Result<()> {
                 RetrieverKind::Sparse => Retriever::Sparse(SparseRetriever::new(store)),
                 RetrieverKind::MultiQuery => {
                     let rewriter = OllamaRewriter::new();
+                    Retriever::MultiQuery(MultiQueryHybridRetriever::new(store, embedder, rewriter))
+                }
+                RetrieverKind::Reranking => {
                     let reranker = HttpReranker::new()?;
-                    Retriever::MultiQuery(MultiQueryRetriever::new(
+                    Retriever::Reranking(RerankingHybridRetriever::new(store, embedder, reranker))
+                }
+                RetrieverKind::MultiQueryReranking => {
+                    let rewriter = OllamaRewriter::new();
+                    let reranker = HttpReranker::new()?;
+                    Retriever::MultiQueryReranking(MultiQueryRerankingHybridRetriever::new(
                         store, embedder, rewriter, reranker,
                     ))
                 }
@@ -358,7 +372,7 @@ async fn run_ask(
 
     let rewriter = OllamaRewriter::new();
     let reranker = HttpReranker::new()?;
-    let retriever = Retriever::MultiQuery(MultiQueryRetriever::new(
+    let retriever = Retriever::MultiQueryReranking(MultiQueryRerankingHybridRetriever::new(
         store, embedder, rewriter, reranker,
     ));
     let generator = OllamaGenerator::new();

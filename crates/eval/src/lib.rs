@@ -316,7 +316,7 @@ impl<P: Pipeline, C: GameClassifier> PipelineEvaluator<P, C> {
             })
             .take(self.limit.unwrap_or(usize::MAX));
 
-        let evals: Vec<FullEval> = stream::iter(examples).map(|example| async move {
+        let mut evals: Vec<FullEval> = stream::iter(examples).map(|example| async move {
             let start = Instant::now();
             let (routing_metrics, game_filter): (RoutingMetrics, Option<String>) = match classify_with_metrics(&self.classifier, &example, self.filter_mode, &self.games).await {
                 Ok(results) => results,
@@ -406,6 +406,8 @@ impl<P: Pipeline, C: GameClassifier> PipelineEvaluator<P, C> {
             .buffer_unordered(4) // 4 at once
             .collect()
             .await;
+        // buffer_unordered scrambles order; sort by id so verbose runs are line-diffable.
+        evals.sort_unstable_by(|a, b| a.example.id.cmp(&b.example.id));
 
         let metrics: Vec<MetricsRef> = evals.iter().filter_map(|e| e.outcome.metrics()).collect();
         let routing_metrics: Vec<&RoutingMetrics> =
@@ -510,7 +512,7 @@ impl<R: Retrieve, C: GameClassifier> RetrievalEvaluator<R, C> {
             })
             .take(self.limit.unwrap_or(usize::MAX));
 
-        let evals: Vec<RetrievalEval> = stream::iter(examples)
+        let mut evals: Vec<RetrievalEval> = stream::iter(examples)
             .map(|example| async move {
                 let (routing_metrics, game_filter): (RoutingMetrics, Option<String>) =
                     match classify_with_metrics(
@@ -572,6 +574,8 @@ impl<R: Retrieve, C: GameClassifier> RetrievalEvaluator<R, C> {
             .buffer_unordered(4) // 4 at once
             .collect()
             .await;
+        // buffer_unordered scrambles order; sort by id so verbose runs are line-diffable.
+        evals.sort_unstable_by(|a, b| a.example.id.cmp(&b.example.id));
 
         let metrics: Vec<&RetrievalMetrics> =
             evals.iter().filter_map(|e| e.outcome.metrics()).collect();

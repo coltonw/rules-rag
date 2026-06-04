@@ -1,7 +1,9 @@
 # RAG plan
 
 Where we are: Phases 1 and 2 done (naive end-to-end, eval scaffolding,
-hybrid search, multi-game with game classifier). Phase 3 is up next.
+hybrid search, multi-game with game classifier). Phase 3.1 (query
+rewriter: multi-query + RRF) and 3.2 (cross-encoder reranker) are also
+done. HyDE is up next.
 
 This project teaches two things: *what* to build for modern RAG, and
 *when not to call the LLM*. Phase 4 covers the second explicitly, and
@@ -15,70 +17,14 @@ mechanical work for Claude; *(yours)* is the learning work.
 
 ---
 
-## Phase 3 — Rewriting, reranking, judge
+## Phase 3 — HyDE
 
-The two highest-leverage improvements in modern RAG (rewriting and
-reranking), plus the judge metric that the deferred multi-hop /
-enumerative questions need.
+Query rewriting (3.1) and cross-encoder reranking (3.2) are done — the
+two highest-leverage improvements in modern RAG. What remains in this
+phase is the HyDE experiment. (The LLM-as-judge metric moved to
+Deferred — it needs the paid Anthropic API.)
 
-### 3.1 — Query rewriter (multi-query + RRF)
-
-LLM generates ~3 reformulations of the query; retrieve top-k for each
-(including the original); fuse the result lists with RRF. Same RRF
-already in use for hybrid search. Structured output via Ollama's JSON
-Schema mode — parse failures aren't a concern, but a sanity pass
-(dedupe, drop empties, fall back to original if zero survive) handles
-semantic misses.
-
-New `rewrite/` crate, mirroring `route/`: one Ollama-backed impl behind
-a `QueryRewriter` trait in `rag-core`. `NoOpRewriter` for the baseline.
-Pipeline calls the rewriter, loops the retriever over the returned
-queries, fuses with RRF.
-
-**Eval methodology**
-- Re-run the golden set with and without the rewriter. Compare Recall@k,
-  MRR, answer-contains rate.
-- Per-query diff: which queries got better, which got worse? Rewriting
-  almost always helps some and hurts others; the question is the net.
-- Ablate: original alone vs. N=3 rewrites alone vs. original + 2
-  rewrites fused. "Include original" is the safest baseline — it can't
-  underperform no-rewrite on any query where the rewrites are bad.
-- Log the rewriter LLM call's latency separately. Usually the dominant
-  contributor to p50 in a small-corpus RAG.
-
-A "skip the rewriter when it isn't needed" heuristic is deferred to 4.4
-— design it after the per-query diff shows where rewriting hurts.
-
-### 3.2 — Cross-encoder reranker
-
-Pull a cross-encoder. First choice: `bge-reranker-v2-m3` via Ollama or
-llama.cpp. Fallback: LLM-as-reranker prompt scoring 0–10. Pipeline
-becomes retrieve top-20 → rerank → keep top-5 for generation. Typically
-10-20% recall improvement on hard queries.
-
-The cross-encoder is itself the "don't use the LLM" answer for
-reranking — it's a small purpose-built model, not a general LLM. The
-LLM-as-reranker fallback exists for capability when no good
-cross-encoder is available; in production the cross-encoder wins on
-cost and latency.
-
-### 3.3 — LLM-as-judge metric
-
-A stronger model (Sonnet/Opus via Anthropic API — the only place we'd
-need a non-local model) evaluates whether the candidate answer matches
-`expected_answer`, tolerating paraphrase. Returns Y/N + brief
-justification.
-
-New `Judge` trait with `judge(question, gold, candidate) -> Verdict`.
-`AnthropicJudge` impl. Eval calls judge after existing checks;
-`judge_match: bool` joins `quote_match` and `chunk_match`.
-Prompt-cache the system prompt across all 60+ judgments.
-
-This is also the moment to add **multi-hop synthesis** and **enumerative
-list** questions to the golden set — the judge handles those naturally
-where quote-grep can't.
-
-### 3.4 — HyDE experiment *(optional)*
+### 3.3 — HyDE experiment
 
 Hypothetical Document Embeddings: LLM generates a hypothetical answer
 paragraph for the query, embed *that*, search with it. Mechanism is
@@ -138,11 +84,11 @@ latency well below the LLM call cost.
 
 ### 4.4 — Skip the rewriter when it isn't needed
 
-Phase 3.1 calls the LLM rewriter unconditionally. The per-query diff
-from 3.1's eval will show queries where rewriting *hurt* recall — that
-data drives this subphase.
+The shipped rewriter calls the LLM unconditionally. The per-query diff
+from the rewriter's eval will show queries where rewriting *hurt*
+recall — that data drives this subphase.
 
-Two techniques, A/B both against 3.1's always-rewrite baseline:
+Two techniques, A/B both against the always-rewrite baseline:
 
 **Length heuristic.** Skip rewriting when the query is already long
 (threshold around 20 tokens, tune from the data). Long queries are
@@ -230,6 +176,26 @@ rewriter pattern.
 ---
 
 ## Deferred (with triggers)
+
+### LLM-as-judge metric
+
+A stronger model (Sonnet/Opus via Anthropic API — the only place we'd
+need a non-local model) evaluates whether the candidate answer matches
+`expected_answer`, tolerating paraphrase. Returns Y/N + brief
+justification.
+
+New `Judge` trait with `judge(question, gold, candidate) -> Verdict`.
+`AnthropicJudge` impl. Eval calls judge after existing checks;
+`judge_match: bool` joins `quote_match` and `chunk_match`.
+Prompt-cache the system prompt across all 60+ judgments.
+
+This is also the moment to add **multi-hop synthesis** and **enumerative
+list** questions to the golden set — the judge handles those naturally
+where quote-grep can't.
+
+**Trigger**: deferred for now to avoid paid API token spend. Pick up
+when the multi-hop / enumerative questions need it and the API cost is
+acceptable.
 
 ### FAQ / errata as separate `doc_type`
 
