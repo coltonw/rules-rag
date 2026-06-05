@@ -50,7 +50,8 @@ struct OllamaRequest<'a> {
     model: &'a str,
     prompt: &'a str,
     stream: bool,
-    format: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<serde_json::Value>,
     options: OllamaOptions,
 }
 
@@ -133,7 +134,7 @@ impl Rewriter for OllamaRewriter {
                 model: &self.model,
                 prompt: &rewrite_prompt(query),
                 stream: false,
-                format: schema(),
+                format: Some(schema()),
                 options: OllamaOptions { num_ctx: 8192 },
             })
             .send()

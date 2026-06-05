@@ -3,7 +3,8 @@
 Where we are: Phases 1 and 2 done (naive end-to-end, eval scaffolding,
 hybrid search, multi-game with game classifier). Phase 3.1 (query
 rewriter: multi-query + RRF) and 3.2 (cross-encoder reranker) are also
-done. HyDE is up next.
+done. HyDE was tried and rejected (see "Experiments run and rejected");
+MMR (3.4) is up next.
 
 This project teaches two things: *what* to build for modern RAG, and
 *when not to call the LLM*. Phase 4 covers the second explicitly, and
@@ -17,20 +18,55 @@ mechanical work for Claude; *(yours)* is the learning work.
 
 ---
 
-## Phase 3 — HyDE
+## Phase 3 — Rewrite and Rerank
 
 Query rewriting (3.1) and cross-encoder reranking (3.2) are done — the
-two highest-leverage improvements in modern RAG. What remains in this
-phase is the HyDE experiment. (The LLM-as-judge metric moved to
+two highest-leverage improvements in modern RAG. What remains are two
+query-/candidate-shaping experiments: MMR diversity (3.4) and step-back
+prompting (3.5, low priority). (HyDE was tried and rejected — see
+"Experiments run and rejected". The LLM-as-judge metric moved to
 Deferred — it needs the paid Anthropic API.)
 
-### 3.3 — HyDE experiment
+### 3.4 — MMR / diversity
 
-Hypothetical Document Embeddings: LLM generates a hypothetical answer
-paragraph for the query, embed *that*, search with it. Mechanism is
-distinct from query rewriting (a hypothetical *answer* vs. a better
-*query*) but for a learning project the distinction is small. One-day
-experiment, A/B against rewriter alone. Skip if it bores you.
+Maximal Marginal Relevance: greedily pick the next chunk by
+`λ·relevance − (1−λ)·max-similarity-to-already-selected`, so each
+selection trades relevance against redundancy with what's already in the
+context. λ is the knob (1.0 = pure relevance, the current behavior;
+lower = more diverse).
+
+This is the one technique family with no representation elsewhere in the
+plan. The reranker (3.2) reorders candidates by relevance but does
+nothing about redundancy — several near-duplicate chunks from the same
+sub-section can crowd out the second passage a question actually needs.
+MMR is pure vector math: no LLM call, ~no added latency, free and local.
+It also reinforces the Phase 4 lesson — a cheap deterministic step beats
+an expensive one.
+
+Design fork (the learning): does MMR run over the dense candidate pool,
+or *after* the cross-encoder rerank? Post-rerank diversifies an
+already-relevance-sorted list; pre-rerank changes what the reranker even
+sees. A/B both.
+
+Eval caveat: MMR's payoff is only visible on questions that need more
+than one passage. The current golden set is single-quote /
+answer-contains, and the multi-hop + enumerative questions are deferred
+(see LLM-as-judge). On single-answer questions MMR can only break even
+or *hurt* (it may demote the single best chunk). So either pull a
+handful of diversity-demanding questions forward into the golden set
+first, or accept that the first eval may read flat and treat that as the
+finding. A/B against the reranker-alone baseline.
+
+### 3.5 — Step-back prompting *(low priority)*
+
+Generate a more general/abstract version of the question ("can my worker
+move through an enemy piece?" → "what are the movement rules?"), retrieve
+for both, fuse. Same family as 3.1 and 3.3 — a query transform — just
+abstracting *upward* instead of paraphrasing (3.1) or hypothesizing an
+answer (3.3). By the time HyDE lands the "transform the query before
+retrieval" lesson is already taught twice, so this is a third point on
+the same axis and the most droppable item in the phase. One-day A/B like
+HyDE if it interests you; otherwise skip.
 
 ---
 
@@ -175,6 +211,31 @@ rewriter pattern.
 
 ---
 
+## Experiments run and rejected
+
+Techniques we built, measured, and decided against. Kept here so the
+findings outlive the phase that produced them.
+
+### HyDE (was Phase 3.3)
+
+Hypothetical Document Embeddings: have the LLM generate a hypothetical
+answer paragraph, embed *that*, and search with it (matching answer↔answer
+instead of question↔answer). Built as a single hypothetical generated as
+a raw string (no JSON grammar, to keep the prose in rulebook register),
+fused with the original query, A/B'd against the multi-query rewriter
+alone.
+
+Rejected on both axes. It lost on eval recall, *and* ran ~2.5x slower
+(~30s vs. ~12s/query): free-form generation produced ~435 output tokens
+(incl. hidden reasoning) at ~16s, vs. the rewriter's grammar-constrained
+56 tokens at ~2s. Dropping the JSON grammar to improve prose quality is
+exactly what unbounded the generation — the two goals are in tension.
+
+Net: it added an unconstrained LLM call to the critical path and didn't
+earn it — the Phase 4 lesson in miniature. A cross-encoder reranker (3.2)
+already attacks the same question↔answer asymmetry HyDE targets, from
+downstream, without the extra call.
+
 ## Deferred (with triggers)
 
 ### LLM-as-judge metric
@@ -243,3 +304,10 @@ are deliberate, not accidental.
   Real technique with mixed evidence, but requires a strong LLM run
   across every chunk at ingest time — doesn't fit the "free and local"
   constraint. Worth knowing about; not worth running here.
+- **Context compression.** An extractive or LLM pass over retrieved
+  chunks to strip irrelevant tokens before generation. Solves a problem
+  this corpus doesn't have — tiny merged paragraph chunks with a small
+  top-k don't strain the context budget — and a per-chunk compression
+  pass on a local LLM is the worst latency trade available. Same shape
+  of cut as contextual retrieval: real technique, needs an LLM pass per
+  chunk, doesn't fit free-and-local.
