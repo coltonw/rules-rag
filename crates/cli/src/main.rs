@@ -444,8 +444,8 @@ async fn run_retrieval_eval(
                     println!("Chunk(s) passed Recall@3 but failed Recall@1");
                 }
                 println!("Expected chunk(s):");
-                for c in &wrong.example.expected_chunk_contains {
-                    println!("  - {c}");
+                for p in &wrong.example.expected_chunks {
+                    println!("  - {}", p.phrasings().join(" | "));
                 }
                 if verbose > 1 {
                     println!("Actual failed chunks:\n");
@@ -575,16 +575,16 @@ fn print_pipeline_failures(evaluation: &FullEvaluation) {
             if !recall_at_5 {
                 println!("Chunk not found");
                 println!("Expected chunk(s):");
-                for c in &wrong.example.expected_chunk_contains {
-                    println!("  - {c}");
+                for p in &wrong.example.expected_chunks {
+                    println!("  - {}", p.phrasings().join(" | "));
                 }
             } else if *refused {
                 println!("Refusal");
             } else if !quote_match {
                 println!("Quote failure");
                 println!("Expected quote(s):");
-                for q in &wrong.example.expected_quote {
-                    println!("  - {q}");
+                for q in &wrong.example.expected_quotes {
+                    println!("  - {}", q.phrasings().join(" | "));
                 }
             } else {
                 if *recall_at_3 {
@@ -593,8 +593,8 @@ fn print_pipeline_failures(evaluation: &FullEvaluation) {
                     println!("Recall@3 failed");
                 }
                 println!("Expected chunk(s):");
-                for c in &wrong.example.expected_chunk_contains {
-                    println!("  - {c}");
+                for p in &wrong.example.expected_chunks {
+                    println!("  - {}", p.phrasings().join(" | "));
                 }
             }
             println!("Answer:\n{}", answer.text);

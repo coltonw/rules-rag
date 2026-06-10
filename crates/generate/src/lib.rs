@@ -85,13 +85,13 @@ fn prompt(query: &str, retrieval: &[RetrievalResult]) -> String {
         ## Output format
 
         1. A short answer in your own words.
-        2. A block-quoted passage taken VERBATIM from one of the passages below, followed by an em-dash, the rulebook name, and the page number.
+        2. One or more block-quoted passages, each taken VERBATIM from the passages below, followed by an em-dash, the rulebook name, and the page number. Include one quote for each distinct rule your answer relies on: if the answer draws on two separate rules (often from different parts of the rulebook), quote both; if a single passage covers it, quote just one.
 
         Quote the passage text exactly. Do not paraphrase, summarize, or correct typos inside the quote. If no passage supports an answer, say so and do not produce a quote.
-        Quote no more than 3 sentences verbatim. Pick the sentences that most directly answer the question.
-        You may skip over unrelated text in the middle of the quote. Use \"...\" to mark the skipped text.
+        Keep each quote to the minimal span that states its rule — usually a sentence or two, or the relevant lines of a short bulleted list. Don't pad a quote, but don't truncate it so far that it no longer states the rule.
+        You may skip over unrelated text in the middle of a quote. Use \"...\" to mark the skipped text.
 
-        ## Example
+        ## Examples
 
         <example>
         <user_question>How does the robber work in Catan?</user_question>
@@ -101,6 +101,19 @@ fn prompt(query: &str, retrieval: &[RetrievalResult]) -> String {
 
         > \"When a 7 is rolled, the active player must move the robber...
         >  No resource is produced from the hex the robber occupies.\"
+        > — Catan Rules, p. 7
+        </answer>
+        </example>
+
+        <example>
+        <user_question>In Catan, what happens when I roll a 7?</user_question>
+        <answer>
+        Two things happen: any player holding more than 7 resource cards discards half, and then you move the robber and steal a card.
+
+        > \"When a 7 is rolled, every player who has more than 7 resource cards must choose and discard half of them.\"
+        > — Catan Rules, p. 9
+
+        > \"...the active player must move the robber to any other hex, then steals 1 random resource card from an opponent adjacent to it.\"
         > — Catan Rules, p. 7
         </answer>
         </example>

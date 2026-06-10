@@ -45,23 +45,55 @@ pub enum EvalError {
     },
 }
 
+/// One required passage, matched by ANY of its acceptable phrasings.
+///
+/// In the golden JSON a passage is written either as a bare string (single
+/// phrasing) or as an array of strings (the rule is stated in more than one
+/// place, or a worked example is also acceptable grounding — match any one):
+///
+/// ```json
+/// "expected_chunks": [
+///   "A player whose pot explodes must stop",
+///   ["chose between Evaluation Phase D or E", "does not get to roll the die"]
+/// ]
+/// ```
+///
+/// A list of passages is ALL-of: every passage must be satisfied (see
+/// [`EvalExample::expected_chunks`] / [`expected_quotes`]).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum Passage {
+    One(String),
+    AnyOf(Vec<String>),
+}
+
+impl Passage {
+    /// The acceptable phrasings for this passage (always at least one).
+    pub fn phrasings(&self) -> &[String] {
+        match self {
+            Self::One(s) => std::slice::from_ref(s),
+            Self::AnyOf(v) => v,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct EvalExample {
     pub id: String,
     pub game: Option<String>,
     pub question: String,
-    /// Acceptable verbatim quotes from the rulebook. ANY-match: the answer
-    /// passes the quote check if it contains any one of these (after
-    /// normalization). Use multiple entries when the same rule is stated
-    /// in more than one place, or when the worked example is also an
-    /// acceptable grounding source.
-    pub expected_quote: Vec<String>,
-    /// Substrings expected to appear in retrieved chunks. ANY-match: passes
-    /// if at least one of these substrings appears in any one of the
-    /// retrieved chunks (after normalization). Use multiple entries when
-    /// the rule appears in more than one place in the rulebook and either
-    /// retrieved passage is acceptable grounding.
-    pub expected_chunk_contains: Vec<String>,
+    /// Passages the answer must quote, verbatim. ALL-of: the answer passes the
+    /// quote check only if it contains a quote from EVERY passage (each passage
+    /// matched by ANY of its phrasings, after normalization). A single-quote
+    /// question is just one passage; a multi-rule answer needs one per rule.
+    pub expected_quotes: Vec<Passage>,
+    /// Passages that must appear among the retrieved chunks. ALL-of: every
+    /// passage must appear in some retrieved chunk (each matched by ANY of its
+    /// phrasings, after normalization). Passages may share a chunk or land in
+    /// different chunks — distinct chunks are NOT required, so a full-context
+    /// retriever still passes. Retrieval recall scores on the COVERAGE RANK:
+    /// the deepest rank at which the last required passage first appears.
+    pub expected_chunks: Vec<Passage>,
     pub expected_answer: String,
     /// Per-example refusal phrases, on top of `DEFAULT_REFUSAL_PHRASES`.
     /// Use when the question has its own way of being refused that the
@@ -363,10 +395,10 @@ impl<P: Pipeline, C: GameClassifier> PipelineEvaluator<P, C> {
             {
                 Ok(text) => {
                     let retrieval_metrics = RetrievalMetrics::from(
-                        check_expected_chunk_contains(&example, &retrieval_results),
+                        check_expected_chunks(&example, &retrieval_results),
                         elapsed_millis_retrieval,
                     );
-                    let quote_match = check_expected_quote(&example, &text);
+                    let quote_match = check_expected_quotes(&example, &text);
                     let refused = check_refused(&example, &text);
                     let elapsed_millis = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
                     let input_tokens = count_tokens(&example.question)
@@ -551,7 +583,7 @@ impl<R: Retrieve, C: GameClassifier> RetrievalEvaluator<R, C> {
                         let elapsed_millis = u64::try_from(retrieval_start.elapsed().as_millis())
                             .unwrap_or(u64::MAX);
                         let metrics = RetrievalMetrics::from(
-                            check_expected_chunk_contains(&example, &retrieval),
+                            check_expected_chunks(&example, &retrieval),
                             elapsed_millis,
                         );
                         tracing::info!(id = %example.id, ?routing_metrics, ?metrics, "ok");
@@ -652,17 +684,17 @@ pub fn normalize(s: &str) -> String {
     out
 }
 
-/// Did the model's answer include any one of the expected verbatim quotes?
-/// If `expected_quote` is empty, returns true (no expectations to satisfy).
-pub fn check_expected_quote(example: &EvalExample, answer: &str) -> bool {
-    if example.expected_quote.is_empty() {
-        return true;
-    }
+/// Did the model's answer include a quote from EVERY required passage?
+/// (Each passage is satisfied by any one of its phrasings.) If
+/// `expected_quotes` is empty, returns true (no expectations to satisfy).
+pub fn check_expected_quotes(example: &EvalExample, answer: &str) -> bool {
     let normalized_answer = normalize(answer);
-    example
-        .expected_quote
-        .iter()
-        .any(|q| normalized_answer.contains(&normalize(q)))
+    example.expected_quotes.iter().all(|passage| {
+        passage
+            .phrasings()
+            .iter()
+            .any(|q| normalized_answer.contains(&normalize(q)))
+    })
 }
 
 /// Does the answer contain a refusal/hedge phrase from either the global
@@ -678,24 +710,38 @@ pub fn check_refused(example: &EvalExample, answer: &str) -> bool {
             .any(|p| normalized_answer.contains(&normalize(p)))
 }
 
-/// Did any retrieved chunk contain at least one of the expected substrings?
-/// If `expected_chunk_contains` is empty, returns default retrieval result.
-pub fn check_expected_chunk_contains(
+/// Coverage rank: how deep you must read to have every required passage.
+///
+/// The max, over passages, of the earliest (0-based) chunk containing any of
+/// that passage's phrasings. `None` if any passage is absent from the
+/// retrieval entirely.
+///
+/// Passages may share a chunk (distinct chunks are not required), so a
+/// whole-rulebook retriever covers everything at rank 0. A single-passage
+/// question reduces to the old `found_at`. If `expected_chunks` is empty,
+/// returns `None` (and warns — every entry should expect at least one passage).
+pub fn check_expected_chunks(
     example: &EvalExample,
     retrieval: &[RetrievalResult],
 ) -> Option<usize> {
-    if example.expected_chunk_contains.is_empty() {
-        tracing::warn!(id = example.id, "unexpected empty expected_chunk_contains");
+    if example.expected_chunks.is_empty() {
+        tracing::warn!(id = example.id, "unexpected empty expected_chunks");
         return None;
     }
     let normalized_chunks: Vec<String> =
         retrieval.iter().map(|r| normalize(&r.chunk.text)).collect();
-    normalized_chunks.iter().position(|chunk| {
-        example.expected_chunk_contains.iter().any(|needle| {
-            let normalized_needle = normalize(needle);
-            chunk.contains(&normalized_needle)
-        })
-    })
+
+    let mut coverage = 0;
+    for passage in &example.expected_chunks {
+        let earliest = normalized_chunks.iter().position(|chunk| {
+            passage
+                .phrasings()
+                .iter()
+                .any(|needle| chunk.contains(&normalize(needle)))
+        })?;
+        coverage = coverage.max(earliest);
+    }
+    Some(coverage)
 }
 
 /// Routes one eval row through the classifier (only when filter_mode requires
@@ -716,8 +762,7 @@ async fn classify_with_metrics<C: GameClassifier>(
         FilterMode::Classifier => {
             let start = Instant::now();
             let game_filter = classifier.classify(&example.question, games).await?;
-            let elapsed_millis =
-                u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+            let elapsed_millis = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
             let routing_metrics = RoutingMetrics {
                 correct: game_filter == example.game,
                 classified: game_filter.clone(),
@@ -856,12 +901,20 @@ mod tests {
     }
 
     fn make_example(quotes: Vec<&str>, forbidden: Vec<&str>) -> EvalExample {
+        // Treat the quote list as a SINGLE passage with any-match phrasings,
+        // matching the any-of-alternatives semantics these tests were written
+        // against. Multi-passage (all-of) behavior is covered by its own tests.
+        let expected_quotes = if quotes.is_empty() {
+            vec![]
+        } else {
+            vec![Passage::AnyOf(quotes.into_iter().map(String::from).collect())]
+        };
         EvalExample {
             id: "test".into(),
             game: Some("Pandemic".into()),
             question: "q".into(),
-            expected_quote: quotes.into_iter().map(String::from).collect(),
-            expected_chunk_contains: vec!["x".into()],
+            expected_quotes,
+            expected_chunks: vec![Passage::One("x".into())],
             expected_answer: "x".into(),
             forbidden_phrases: forbidden.into_iter().map(String::from).collect(),
             tags: vec![],
@@ -883,19 +936,20 @@ mod tests {
     }
 
     #[test]
-    fn check_chunk_contains_matches_any_alternative() {
+    fn check_chunks_matches_any_phrasing_within_a_passage() {
+        // One required passage with two acceptable phrasings (any-of).
         let mut example = make_example(vec!["x"], vec![]);
-        example.expected_chunk_contains = vec![
+        example.expected_chunks = vec![Passage::AnyOf(vec![
             "no effect when drawn on the Infector's turn".into(),
             "of a color that has been eradicated, do not add a cube".into(),
-        ];
-        // Only the second alternative is in the retrieved chunk, at rank 0.
+        ])];
+        // Only the second phrasing is in the retrieved chunk, at rank 0.
         let retrieval = vec![make_chunk(
             "If, however, the pictured city is of a color that has been eradicated, do not add a cube.",
         )];
-        assert_eq!(check_expected_chunk_contains(&example, &retrieval), Some(0));
+        assert_eq!(check_expected_chunks(&example, &retrieval), Some(0));
 
-        // Match at rank 2 (third chunk): position is 2.
+        // Match at rank 2 (third chunk): coverage is 2.
         let retrieval = vec![
             make_chunk("Unrelated chunk one."),
             make_chunk("Unrelated chunk two."),
@@ -903,18 +957,48 @@ mod tests {
                 "If, however, the pictured city is of a color that has been eradicated, do not add a cube.",
             ),
         ];
-        assert_eq!(check_expected_chunk_contains(&example, &retrieval), Some(2));
+        assert_eq!(check_expected_chunks(&example, &retrieval), Some(2));
 
-        // Neither alternative present anywhere: None.
+        // Neither phrasing present anywhere: None.
         let retrieval = vec![make_chunk("Some unrelated chunk text.")];
-        assert_eq!(check_expected_chunk_contains(&example, &retrieval), None);
+        assert_eq!(check_expected_chunks(&example, &retrieval), None);
     }
 
     #[test]
-    fn check_chunk_contains_empty_expected_returns_none() {
+    fn check_chunks_coverage_rank_is_the_deepest_required_passage() {
+        // Two distinct required passages (all-of).
         let mut example = make_example(vec!["x"], vec![]);
-        example.expected_chunk_contains = vec![];
-        assert_eq!(check_expected_chunk_contains(&example, &[]), None);
+        example.expected_chunks = vec![
+            Passage::One("first required rule".into()),
+            Passage::One("second required rule".into()),
+        ];
+
+        // A at rank 0, B at rank 2 => coverage is the deeper one, 2.
+        let retrieval = vec![
+            make_chunk("here is the first required rule, stated plainly"),
+            make_chunk("unrelated"),
+            make_chunk("and here is the second required rule"),
+        ];
+        assert_eq!(check_expected_chunks(&example, &retrieval), Some(2));
+
+        // Both passages in the SAME chunk at rank 1: distinct chunks are not
+        // required, so coverage is 1 (a full-context retriever would pass @1).
+        let retrieval = vec![
+            make_chunk("unrelated"),
+            make_chunk("the first required rule and also the second required rule together"),
+        ];
+        assert_eq!(check_expected_chunks(&example, &retrieval), Some(1));
+
+        // One passage present, the other missing entirely: None.
+        let retrieval = vec![make_chunk("only the first required rule is here")];
+        assert_eq!(check_expected_chunks(&example, &retrieval), None);
+    }
+
+    #[test]
+    fn check_chunks_empty_expected_returns_none() {
+        let mut example = make_example(vec!["x"], vec![]);
+        example.expected_chunks = vec![];
+        assert_eq!(check_expected_chunks(&example, &[]), None);
     }
 
     #[test]
@@ -943,7 +1027,7 @@ mod tests {
     }
 
     #[test]
-    fn check_quote_matches_any_alternative() {
+    fn check_quotes_matches_any_phrasing_within_a_passage() {
         let example = make_example(
             vec![
                 "A player gets 4 actions to spend on her turn",
@@ -951,27 +1035,51 @@ mod tests {
             ],
             vec![],
         );
-        // Matches first alternative.
-        assert!(check_expected_quote(
+        // Matches first phrasing.
+        assert!(check_expected_quotes(
             &example,
             "Per the rulebook: A player gets **4** actions to spend on her turn."
         ));
-        // Matches second alternative even when first is absent.
-        assert!(check_expected_quote(
+        // Matches second phrasing even when first is absent.
+        assert!(check_expected_quotes(
             &example,
             "The rules say: Each player takes 4 actions per turn."
         ));
         // Neither present.
-        assert!(!check_expected_quote(
+        assert!(!check_expected_quotes(
             &example,
             "Players have lots of options on their turn."
         ));
     }
 
     #[test]
-    fn check_quote_empty_expected_passes() {
+    fn check_quotes_requires_a_quote_from_every_passage() {
+        // Two distinct required passages (all-of): the answer must quote both.
+        let example = EvalExample {
+            expected_quotes: vec![
+                Passage::One("destroying a Town generates 1 Fear".into()),
+                Passage::One("Terror Level 3: No Cities on the island".into()),
+            ],
+            ..make_example(vec![], vec![])
+        };
+        // Only the first passage quoted: fails.
+        assert!(!check_expected_quotes(
+            &example,
+            "Destroying a Town generates 1 Fear, so press the attack."
+        ));
+        // Both passages quoted: passes.
+        assert!(check_expected_quotes(
+            &example,
+            "Destroying a Town generates 1 Fear. At Terror Level 3: No Cities on the island wins."
+        ));
+        // Neither: fails.
+        assert!(!check_expected_quotes(&example, "Fear is good and cities are bad."));
+    }
+
+    #[test]
+    fn check_quotes_empty_expected_passes() {
         let example = make_example(vec![], vec![]);
-        assert!(check_expected_quote(&example, "any answer at all"));
+        assert!(check_expected_quotes(&example, "any answer at all"));
     }
 
     #[test]
@@ -1022,9 +1130,11 @@ mod tests {
         );
     }
 
-    /// Every entry's expected_chunk_contains and expected_quote should be
-    /// a real substring of its source rulebook (after normalization).
-    /// If this regresses, the eval will silently report 0% chunk-match.
+    /// Every phrasing in every passage (chunks and quotes) should be a real
+    /// substring of its source rulebook (after normalization). If this
+    /// regresses, the eval will silently report 0% chunk-match for that entry.
+    /// Covers all games present in the golden set — an unmapped game is a
+    /// failure, not a silent skip, so new games can't slip through unverified.
     #[test]
     fn every_expected_substring_appears_in_source() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -1036,6 +1146,10 @@ mod tests {
                 "The Quacks of Quedlinburg",
                 "data/pdfs/the-quacks-of-quedlinburg-rulebook.txt",
             ),
+            ("Stone Age", "data/pdfs/stone-age-rulebook.txt"),
+            ("Res Arcana", "data/pdfs/res-arcana-rulebook.txt"),
+            ("Paleo", "data/pdfs/paleo-rulebook.txt"),
+            ("Spirit Island", "data/pdfs/spirit-island-rulebook.txt"),
         ]
         .iter()
         .map(|(g, p)| (*g, normalize(&read_to_string(root.join(p)).unwrap())))
@@ -1045,26 +1159,23 @@ mod tests {
         for ex in &golden {
             let game = ex.game.as_deref().unwrap_or("");
             let Some(src) = sources.get(game) else {
+                failures.push(format!("{}: game {game:?} has no source mapping", ex.id));
                 continue;
             };
-            for (i, chunk_needle_str) in ex.expected_chunk_contains.iter().enumerate() {
-                let needle = normalize(chunk_needle_str);
-                if !src.contains(&needle) {
-                    failures.push(format!(
-                        "{}: expected_chunk_contains[{}] not in source: {:?}",
-                        ex.id, i, chunk_needle_str
-                    ));
+            let check = |kind: &str, passages: &[Passage], failures: &mut Vec<String>| {
+                for (i, passage) in passages.iter().enumerate() {
+                    for phrasing in passage.phrasings() {
+                        if !src.contains(&normalize(phrasing)) {
+                            failures.push(format!(
+                                "{}: {kind}[{i}] not in source: {phrasing:?}",
+                                ex.id
+                            ));
+                        }
+                    }
                 }
-            }
-            for (i, quote) in ex.expected_quote.iter().enumerate() {
-                let needle = normalize(quote);
-                if !src.contains(&needle) {
-                    failures.push(format!(
-                        "{}: expected_quote[{}] not in source: {:?}",
-                        ex.id, i, quote
-                    ));
-                }
-            }
+            };
+            check("expected_chunks", &ex.expected_chunks, &mut failures);
+            check("expected_quotes", &ex.expected_quotes, &mut failures);
         }
         assert!(failures.is_empty(), "verification failures: {failures:#?}");
     }

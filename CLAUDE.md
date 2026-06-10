@@ -97,6 +97,11 @@ data/
   the pipeline.
 - Each phase ends with re-running the eval to measure whether the new
   technique actually helped.
+- **A good eval is a hard eval.** Don't shy away from questions the current
+  pipeline fails — failing questions are exactly how we measure improvement.
+  Add tough multi-chunk / edge-case / aspirational questions even when
+  (especially when) they don't pass today. A question that only ever passes
+  measures nothing. When in doubt, include the hard one and tag it.
 
 ## PDF extraction pipeline
 
