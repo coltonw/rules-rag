@@ -515,6 +515,7 @@ fn print_retrieval_ratios(ratios: &RetrievalRatios) {
     println!("Recall@3 match:  {:.1}%", ratios.recall_at_3 * 100.0);
     println!("Recall@5 match:  {:.1}%", ratios.recall_at_5 * 100.0);
     println!("Recall@10 match:  {:.1}%", ratios.recall_at_10 * 100.0);
+    println!("Perfect coverage:  {:.1}%", ratios.perfect_coverage * 100.0);
     println!("MRR mean:  {:.3}", ratios.mrr_mean);
     println!("Retrieval latency:");
     println!("  - p50: {:.1}ms", ratios.elapsed_millis_p50);

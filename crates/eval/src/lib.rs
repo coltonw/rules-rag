@@ -128,6 +128,11 @@ pub struct RetrievalRatios {
     pub recall_at_3: f32,
     pub recall_at_5: f32,
     pub recall_at_10: f32,
+    /// Fraction of questions that hit their best achievable coverage rank
+    /// (`rank == floor`). The difficulty-normalized "recall@1": single-chunk
+    /// questions must land at rank 0, N-chunk questions must pack into the top
+    /// N slots. Always achievable, unlike raw recall@1 for multi-chunk rows.
+    pub perfect_coverage: f32,
     pub mrr_mean: f32,
     pub elapsed_millis_p50: u64,
     pub elapsed_millis_p95: u64,
@@ -179,30 +184,39 @@ pub struct RetrievalMetrics {
     pub recall_at_3: bool,
     pub recall_at_5: bool,
     pub recall_at_10: bool,
+    /// `true` when the retriever achieved the best coverage rank this question
+    /// allows ([`Coverage::rank`] == [`Coverage::floor`]). For single-chunk
+    /// questions this is identical to `recall_at_1`; for multi-chunk questions
+    /// it's the fair "recall@1 equivalent" — perfect packing of the required
+    /// chunks at the top, rather than the impossible bar of fitting them all
+    /// into the single top slot.
+    pub perfect_coverage: bool,
     pub mrr: f32,
     pub found_at: usize,
     pub elapsed_millis: u64,
 }
 
 impl RetrievalMetrics {
-    fn from(found: Option<usize>, elapsed_millis: u64) -> Self {
-        found.map_or(
+    fn from(coverage: Option<Coverage>, elapsed_millis: u64) -> Self {
+        coverage.map_or(
             Self {
                 recall_at_1: false,
                 recall_at_3: false,
                 recall_at_5: false,
                 recall_at_10: false,
+                perfect_coverage: false,
                 mrr: 0.0,
                 found_at: 0,
                 elapsed_millis,
             },
-            |idx| Self {
-                recall_at_1: idx < 1,
-                recall_at_3: idx < 3,
-                recall_at_5: idx < 5,
-                recall_at_10: idx < 10,
-                mrr: 1.0 / (idx as f32 + 1.0),
-                found_at: idx + 1,
+            |Coverage { rank, floor }| Self {
+                recall_at_1: rank < 1,
+                recall_at_3: rank < 3,
+                recall_at_5: rank < 5,
+                recall_at_10: rank < 10,
+                perfect_coverage: rank == floor,
+                mrr: 1.0 / (rank as f32 + 1.0),
+                found_at: rank + 1,
                 elapsed_millis,
             },
         )
@@ -395,7 +409,7 @@ impl<P: Pipeline, C: GameClassifier> PipelineEvaluator<P, C> {
             {
                 Ok(text) => {
                     let retrieval_metrics = RetrievalMetrics::from(
-                        check_expected_chunks(&example, &retrieval_results),
+                        chunk_coverage(&example, &retrieval_results),
                         elapsed_millis_retrieval,
                     );
                     let quote_match = check_expected_quotes(&example, &text);
@@ -583,7 +597,7 @@ impl<R: Retrieve, C: GameClassifier> RetrievalEvaluator<R, C> {
                         let elapsed_millis = u64::try_from(retrieval_start.elapsed().as_millis())
                             .unwrap_or(u64::MAX);
                         let metrics = RetrievalMetrics::from(
-                            check_expected_chunks(&example, &retrieval),
+                            chunk_coverage(&example, &retrieval),
                             elapsed_millis,
                         );
                         tracing::info!(id = %example.id, ?routing_metrics, ?metrics, "ok");
@@ -710,20 +724,37 @@ pub fn check_refused(example: &EvalExample, answer: &str) -> bool {
             .any(|p| normalized_answer.contains(&normalize(p)))
 }
 
-/// Coverage rank: how deep you must read to have every required passage.
+/// How well a retrieval covered a question's required passages, paired with the
+/// best result the question could possibly get.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Coverage {
+    /// Coverage rank: the deepest (0-based) rank you must read down to before
+    /// every required passage has appeared. This is what recall@k and MRR
+    /// score against.
+    pub rank: usize,
+    /// The smallest `rank` this question could possibly achieve: one less than
+    /// the number of distinct chunks the required passages occupy. A retriever
+    /// hits `floor` exactly when it packs every required chunk into the top
+    /// slots with nothing wasted in between. `rank == floor` is the
+    /// per-question "perfect" result; for a single-chunk question `floor` is 0,
+    /// so it coincides with recall@1.
+    pub floor: usize,
+}
+
+/// Coverage of a question's required passages by a retrieval.
 ///
-/// The max, over passages, of the earliest (0-based) chunk containing any of
-/// that passage's phrasings. `None` if any passage is absent from the
-/// retrieval entirely.
+/// `rank` is the max, over passages, of the earliest (0-based) chunk containing
+/// any of that passage's phrasings. `floor` is `(distinct required chunks) - 1`
+/// — the best `rank` achievable — so `rank == floor` means the required chunks
+/// were packed as tightly at the top as this question allows. `None` if any
+/// passage is absent from the retrieval entirely.
 ///
 /// Passages may share a chunk (distinct chunks are not required), so a
 /// whole-rulebook retriever covers everything at rank 0. A single-passage
-/// question reduces to the old `found_at`. If `expected_chunks` is empty,
-/// returns `None` (and warns — every entry should expect at least one passage).
-pub fn check_expected_chunks(
-    example: &EvalExample,
-    retrieval: &[RetrievalResult],
-) -> Option<usize> {
+/// question has `floor == 0` and reduces to the old `found_at`. If
+/// `expected_chunks` is empty, returns `None` (and warns — every entry should
+/// expect at least one passage).
+pub fn chunk_coverage(example: &EvalExample, retrieval: &[RetrievalResult]) -> Option<Coverage> {
     if example.expected_chunks.is_empty() {
         tracing::warn!(id = example.id, "unexpected empty expected_chunks");
         return None;
@@ -731,7 +762,7 @@ pub fn check_expected_chunks(
     let normalized_chunks: Vec<String> =
         retrieval.iter().map(|r| normalize(&r.chunk.text)).collect();
 
-    let mut coverage = 0;
+    let mut earliest_per_passage = Vec::with_capacity(example.expected_chunks.len());
     for passage in &example.expected_chunks {
         let earliest = normalized_chunks.iter().position(|chunk| {
             passage
@@ -739,9 +770,26 @@ pub fn check_expected_chunks(
                 .iter()
                 .any(|needle| chunk.contains(&normalize(needle)))
         })?;
-        coverage = coverage.max(earliest);
+        earliest_per_passage.push(earliest);
     }
-    Some(coverage)
+
+    // Non-empty: expected_chunks was non-empty and every passage matched (else
+    // the `?` above returned None).
+    let rank = earliest_per_passage.iter().copied().max().unwrap_or(0);
+    let mut distinct = earliest_per_passage;
+    distinct.sort_unstable();
+    distinct.dedup();
+    let floor = distinct.len() - 1;
+    Some(Coverage { rank, floor })
+}
+
+/// Coverage rank only — the value recall@k and MRR score against. See
+/// [`chunk_coverage`] for the full picture (including the per-question floor).
+pub fn check_expected_chunks(
+    example: &EvalExample,
+    retrieval: &[RetrievalResult],
+) -> Option<usize> {
+    chunk_coverage(example, retrieval).map(|c| c.rank)
 }
 
 /// Routes one eval row through the classifier (only when filter_mode requires
@@ -836,12 +884,14 @@ fn summarize_retrieval(metrics: &[&RetrievalMetrics]) -> RetrievalRatios {
     let recall_at_3_passed = metrics.iter().filter(|m| m.recall_at_3).count();
     let recall_at_5_passed = metrics.iter().filter(|m| m.recall_at_5).count();
     let recall_at_10_passed = metrics.iter().filter(|m| m.recall_at_10).count();
+    let perfect_coverage_passed = metrics.iter().filter(|m| m.perfect_coverage).count();
     let mrr_mean = ratio(metrics.iter().map(|m| m.mrr).sum::<f32>(), total);
 
     let recall_at_1 = ratio(recall_at_1_passed as f32, total);
     let recall_at_3 = ratio(recall_at_3_passed as f32, total);
     let recall_at_5 = ratio(recall_at_5_passed as f32, total);
     let recall_at_10 = ratio(recall_at_10_passed as f32, total);
+    let perfect_coverage = ratio(perfect_coverage_passed as f32, total);
 
     let mut elapsed_sorted: Vec<u64> = metrics.iter().map(|m| m.elapsed_millis).collect();
     elapsed_sorted.sort_unstable();
@@ -859,6 +909,7 @@ fn summarize_retrieval(metrics: &[&RetrievalMetrics]) -> RetrievalRatios {
         recall_at_3,
         recall_at_5,
         recall_at_10,
+        perfect_coverage,
         mrr_mean,
         elapsed_millis_p50,
         elapsed_millis_p95,
@@ -1003,27 +1054,80 @@ mod tests {
 
     #[test]
     fn retrieval_metrics_from_rank() {
-        // Rank 0: every recall@k passes, mrr = 1.0.
-        let m = RetrievalMetrics::from(Some(0), 0);
+        // Rank 0, floor 0: every recall@k passes, mrr = 1.0, and it's perfect.
+        let m = RetrievalMetrics::from(Some(Coverage { rank: 0, floor: 0 }), 0);
         assert!(m.recall_at_1 && m.recall_at_3 && m.recall_at_5 && m.recall_at_10);
+        assert!(m.perfect_coverage);
         assert_eq!(m.mrr, 1.0);
 
         // Rank 2: @1 misses, @3/@5/@10 hit, mrr = 1/3.
-        let m = RetrievalMetrics::from(Some(2), 0);
+        let m = RetrievalMetrics::from(Some(Coverage { rank: 2, floor: 0 }), 0);
         assert!(!m.recall_at_1);
         assert!(m.recall_at_3 && m.recall_at_5 && m.recall_at_10);
         assert!((m.mrr - 1.0 / 3.0).abs() < 1e-6);
 
+        // A 3-chunk question packed into the top 3 slots: rank 2 == floor 2, so
+        // recall@1 is (correctly) false but perfect_coverage is true.
+        let m = RetrievalMetrics::from(Some(Coverage { rank: 2, floor: 2 }), 0);
+        assert!(!m.recall_at_1);
+        assert!(m.perfect_coverage);
+
+        // Same floor, one wasted slot (rank 3 > floor 2): not perfect.
+        let m = RetrievalMetrics::from(Some(Coverage { rank: 3, floor: 2 }), 0);
+        assert!(!m.perfect_coverage);
+
         // Rank 9: only @10 hits.
-        let m = RetrievalMetrics::from(Some(9), 0);
+        let m = RetrievalMetrics::from(Some(Coverage { rank: 9, floor: 0 }), 0);
         assert!(!m.recall_at_1 && !m.recall_at_3 && !m.recall_at_5);
         assert!(m.recall_at_10);
+        assert!(!m.perfect_coverage);
         assert!((m.mrr - 0.1).abs() < 1e-6);
 
-        // No match: all false, mrr = 0.
+        // No match: all false, mrr = 0, not perfect.
         let m = RetrievalMetrics::from(None, 0);
         assert!(!m.recall_at_1 && !m.recall_at_3 && !m.recall_at_5 && !m.recall_at_10);
+        assert!(!m.perfect_coverage);
         assert_eq!(m.mrr, 0.0);
+    }
+
+    #[test]
+    fn chunk_coverage_reports_floor() {
+        let mut example = make_example(vec!["x"], vec![]);
+        example.expected_chunks = vec![
+            Passage::One("first required rule".into()),
+            Passage::One("second required rule".into()),
+        ];
+
+        // Two distinct chunks packed at the top (ranks 0 and 1): floor 1, and
+        // rank 1 == floor, so this is the perfect result for a 2-chunk question.
+        let retrieval = vec![
+            make_chunk("here is the first required rule"),
+            make_chunk("and here is the second required rule"),
+        ];
+        assert_eq!(
+            chunk_coverage(&example, &retrieval),
+            Some(Coverage { rank: 1, floor: 1 })
+        );
+
+        // A wasted slot between them (ranks 0 and 2): floor stays 1, rank is 2.
+        let retrieval = vec![
+            make_chunk("here is the first required rule"),
+            make_chunk("unrelated"),
+            make_chunk("and here is the second required rule"),
+        ];
+        assert_eq!(
+            chunk_coverage(&example, &retrieval),
+            Some(Coverage { rank: 2, floor: 1 })
+        );
+
+        // Both passages in one shared chunk: a single distinct chunk, floor 0.
+        let retrieval = vec![make_chunk(
+            "the first required rule and the second required rule together",
+        )];
+        assert_eq!(
+            chunk_coverage(&example, &retrieval),
+            Some(Coverage { rank: 0, floor: 0 })
+        );
     }
 
     #[test]
