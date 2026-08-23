@@ -1,10 +1,11 @@
 # RAG plan
 
 Where we are: Phases 1 and 2 done (naive end-to-end, eval scaffolding,
-hybrid search, multi-game with game classifier). Phase 3.1 (query
-rewriter: multi-query + RRF) and 3.2 (cross-encoder reranker) are also
-done. HyDE was tried and rejected (see "Experiments run and rejected");
-MMR (3.4) is up next.
+hybrid search, multi-game with game classifier). Phase 3 is done: 3.1
+(query rewriter) and 3.2 (cross-encoder reranker) shipped; 3.3 (HyDE)
+and 3.4 (MMR) were tried and rejected; 3.5 (step-back prompting) was
+skipped without running (see "Experiments run and rejected" for all
+three). Phase 4 (When NOT to call the LLM) is next.
 
 This project teaches two things: *what* to build for modern RAG, and
 *when not to call the LLM*. Phase 4 covers the second explicitly, and
@@ -18,55 +19,26 @@ mechanical work for Claude; *(yours)* is the learning work.
 
 ---
 
-## Phase 3 — Rewrite and Rerank
+## Phase 3 — Rewrite and Rerank (done)
 
-Query rewriting (3.1) and cross-encoder reranking (3.2) are done — the
-two highest-leverage improvements in modern RAG. What remains are two
-query-/candidate-shaping experiments: MMR diversity (3.4) and step-back
-prompting (3.5, low priority). (HyDE was tried and rejected — see
-"Experiments run and rejected". The LLM-as-judge metric moved to
-Deferred — it needs the paid Anthropic API.)
+Query rewriting (3.1) and cross-encoder reranking (3.2) shipped — the
+two highest-leverage improvements in modern RAG. Everything else in the
+phase was tried and either rejected or explicitly skipped:
 
-### 3.4 — MMR / diversity
+- **HyDE (3.3)** — tried, rejected on both recall and latency. See
+  "Experiments run and rejected".
+- **MMR / diversity (3.4)** — tried, rejected: reads flat to
+  marginally negative on this corpus. See "Experiments run and
+  rejected" and `docs/mmr-findings.md` for the full probe.
+- **Step-back prompting (3.5)** — skipped without running. Same family
+  as 3.1 (paraphrase) and 3.3 (hypothesize an answer) — abstracting the
+  query *upward* is a third point on the "transform the query before
+  retrieval" axis, and HyDE already demonstrated that axis's ceiling on
+  this corpus (rejected on recall *and* latency). Not worth a third A/B
+  to relearn the same lesson.
 
-Maximal Marginal Relevance: greedily pick the next chunk by
-`λ·relevance − (1−λ)·max-similarity-to-already-selected`, so each
-selection trades relevance against redundancy with what's already in the
-context. λ is the knob (1.0 = pure relevance, the current behavior;
-lower = more diverse).
-
-This is the one technique family with no representation elsewhere in the
-plan. The reranker (3.2) reorders candidates by relevance but does
-nothing about redundancy — several near-duplicate chunks from the same
-sub-section can crowd out the second passage a question actually needs.
-MMR is pure vector math: no LLM call, ~no added latency, free and local.
-It also reinforces the Phase 4 lesson — a cheap deterministic step beats
-an expensive one.
-
-Design fork (the learning): does MMR run over the dense candidate pool,
-or *after* the cross-encoder rerank? Post-rerank diversifies an
-already-relevance-sorted list; pre-rerank changes what the reranker even
-sees. A/B both.
-
-Eval caveat: MMR's payoff is only visible on questions that need more
-than one passage. The current golden set is single-quote /
-answer-contains, and the multi-hop + enumerative questions are deferred
-(see LLM-as-judge). On single-answer questions MMR can only break even
-or *hurt* (it may demote the single best chunk). So either pull a
-handful of diversity-demanding questions forward into the golden set
-first, or accept that the first eval may read flat and treat that as the
-finding. A/B against the reranker-alone baseline.
-
-### 3.5 — Step-back prompting *(low priority)*
-
-Generate a more general/abstract version of the question ("can my worker
-move through an enemy piece?" → "what are the movement rules?"), retrieve
-for both, fuse. Same family as 3.1 and 3.3 — a query transform — just
-abstracting *upward* instead of paraphrasing (3.1) or hypothesizing an
-answer (3.3). By the time HyDE lands the "transform the query before
-retrieval" lesson is already taught twice, so this is a third point on
-the same axis and the most droppable item in the phase. One-day A/B like
-HyDE if it interests you; otherwise skip.
+The LLM-as-judge metric moved to Deferred — it needs the paid
+Anthropic API.
 
 ---
 
@@ -150,6 +122,12 @@ strong LLM across every chunk at ingest.)
 
 The genuinely hard stuff. Ordered roughly by leverage on the corpus
 we'll have by then.
+
+Eval already has what these need: `perfect_coverage` (added post-MMR)
+is the difficulty-normalized recall@1 — single-chunk questions must
+land at rank 0, N-chunk questions must pack into the top N slots — so
+multi-passage questions get a fair pass/fail instead of the impossible
+bar of recall@1 against multiple chunks.
 
 ### 5.1 — Hierarchical / small-to-big retrieval
 
@@ -235,6 +213,44 @@ Net: it added an unconstrained LLM call to the critical path and didn't
 earn it — the Phase 4 lesson in miniature. A cross-encoder reranker (3.2)
 already attacks the same question↔answer asymmetry HyDE targets, from
 downstream, without the extra call.
+
+### MMR / diversity (was Phase 3.4)
+
+Maximal Marginal Relevance: greedily pick the next chunk by
+`λ·relevance − (1−λ)·max-similarity-to-already-selected`, trading
+relevance against redundancy with what's already selected. Probed with
+a λ sweep (1.0 → 0.7) across three candidate pools — dense, hybrid, and
+post-rerank — scored on two-passage questions via coverage rank (how
+deep you must read to have both required passages).
+
+Rejected — reads flat to marginally negative across every pool: 0/12
+(dense), 0/12 (hybrid), 1/12 (rerank) two-passage questions improved,
+and that one improvement was a 1-slot nudge on a question that already
+passed at k=3. Root cause: on this corpus, multi-chunk coverage
+failures are *relevance* problems (the second passage is a weak
+lexical/semantic match) rather than *redundancy* problems (duplicates
+crowding it out) — MMR can only fix the latter, so it has nothing to
+trade against. The cross-encoder reranker (3.2) already does the real
+work here — it moved two probe questions 8→4 and 4→3 rank on its own,
+with MMR on top adding ≈nothing. Pure-dense-cosine MMR (recomputing
+relevance instead of reusing the fused/rerank score) was actively
+worse — it discards the FTS signal.
+
+Net: same shape of finding as HyDE — a real technique with no purchase
+on this particular corpus (small, game-filtered, already deduplicated).
+Full numbers, the `burial` diagnostic, and probe-reconstruction notes:
+`docs/mmr-findings.md`.
+
+### Step-back prompting (was Phase 3.5)
+
+Not run. Generate a more general/abstract version of the question
+("can my worker move through an enemy piece?" → "what are the movement
+rules?"), retrieve for both, fuse. Same family as 3.1 (paraphrase) and
+3.3/HyDE (hypothesize an answer) — a query transform, just abstracting
+*upward* instead of sideways or forward. Skipped because HyDE already
+spent the phase's budget on that family and lost on both recall and
+latency; a third point on the same axis wasn't worth an A/B to relearn
+the lesson.
 
 ## Deferred (with triggers)
 
